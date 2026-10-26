@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Search, Plus, Star, Phone, Mail, Building } from 'lucide-react';
 import { SUPPLIERS, PURCHASE_ORDERS, fmt } from '../data/mockData';
 import { useToast } from '../context/ToastContext';
+import { useAuth } from '../context/AuthContext';
 
 function SupplierModal({ supplier, onClose, onSave }) {
   const [form, setForm] = useState(supplier || { name:'', contact:'', phone:'', email:'', paymentTerms:30, rating:4 });
@@ -63,6 +64,7 @@ function StarRating({ rating }) {
 
 export default function SuppliersPage() {
   const toast = useToast();
+  const { canDo } = useAuth();
   const [suppliers, setSuppliers] = useState(SUPPLIERS);
   const [q, setQ] = useState('');
   const [modal, setModal] = useState(null);
@@ -98,9 +100,11 @@ export default function SuppliersPage() {
           <p className="page-subtitle">{suppliers.length} registered suppliers</p>
         </div>
         <div className="page-header-actions">
-          <button id="btn-new-supplier" className="btn btn-primary" onClick={()=>setModal('new')}>
-            <Plus size={14}/> New Supplier
-          </button>
+          {canDo('supplier.add') && (
+            <button id="btn-new-supplier" className="btn btn-primary" onClick={()=>setModal('new')}>
+              <Plus size={14}/> New Supplier
+            </button>
+          )}
         </div>
       </div>
 
@@ -119,7 +123,7 @@ export default function SuppliersPage() {
                 <div style={{ fontWeight:700, fontSize:15, color:'var(--text-primary)', marginBottom:4 }}>{s.name}</div>
                 <div style={{ fontSize:12, color:'var(--text-muted)', fontFamily:'var(--font-mono)' }}>{s.id}</div>
               </div>
-              <button className="btn btn-outline btn-sm" onClick={() => setModal(s)}>Edit</button>
+              {canDo('supplier.edit') && <button className="btn btn-outline btn-sm" onClick={() => setModal(s)}>Edit</button>}
             </div>
 
             <div style={{ display:'flex', flexDirection:'column', gap:6, fontSize:13, marginBottom:14 }}>

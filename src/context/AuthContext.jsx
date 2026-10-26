@@ -53,6 +53,43 @@ export const PERMISSIONS = {
   ],
 };
 
+// Action-level permissions: which BUTTONS each role may use (from the proposed use case diagram).
+// Pages a role can open are in PERMISSIONS; inside a page, a button shows only if its action is listed here.
+export const ACTIONS = {
+  admin: [ // supervisory: approve, assign, review
+    'product.add', 'product.edit',
+    'service.create', 'service.assign',
+    'return.approve', 'complaint.escalate', 'complaint.resolve',
+    'user.manage', 'settings.manage', 'report.export',
+  ],
+  sales: [
+    'sale.create',
+    'customer.add', 'customer.edit', 'customer.delete',
+    'service.create',
+    'return.create', 'complaint.create', 'complaint.escalate',
+    'report.export',
+  ],
+  storekeeper: [
+    'product.add', 'product.edit', 'product.delete',
+    'stock.adjust', 'stock.verify', 'stock.alert',
+    'service.issueParts', 'return.inspect',
+    'report.export',
+  ],
+  purchase: [
+    'po.create', 'po.receive',
+    'supplier.add', 'supplier.edit',
+    'report.export',
+  ],
+  finance: [
+    'payment.record', 'payment.remind', 'payment.flagOverdue', 'payable.pay',
+    'refund.pay', 'customer.edit', // customer.edit = approve credit limit
+    'report.export',
+  ],
+  technician: [
+    'service.updateStatus', 'service.logVisit',
+  ],
+};
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -133,10 +170,16 @@ export function AuthProvider({ children }) {
     return user.permissions.includes(permission);
   }, [user]);
 
+  // canDo('stock.adjust') -> true only if the logged-in role may use that button
+  const canDo = useCallback((action) => {
+    if (!user) return false;
+    return (ACTIONS[user.role] || []).includes(action);
+  }, [user]);
+
   const roleInfo = user ? ROLES[user.role] : null;
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, resetPassword, can, loading, error, roleInfo }}>
+    <AuthContext.Provider value={{ user, login, logout, resetPassword, can, canDo, loading, error, roleInfo }}>
       {children}
     </AuthContext.Provider>
   );

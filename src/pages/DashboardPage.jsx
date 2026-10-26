@@ -55,7 +55,7 @@ function StatCard({ label, value, change, changeDir, icon: Icon, colorClass }) {
 }
 
 export default function DashboardPage() {
-  const { user, can } = useAuth();
+  const { user, can, canDo } = useAuth();
   const navigate = useNavigate();
 
   const salesData = getDailySalesData();
@@ -224,15 +224,16 @@ export default function DashboardPage() {
           <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:16 }}>Jump to common tasks</div>
           <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
             {[
-              { label:'New Sale', path:'/pos', perm:'pos', color:'var(--primary-500)', icon:'🛒' },
-              { label:'New Purchase Order', path:'/purchase-orders', perm:'purchase-orders', color:'var(--warning-500)', icon:'📦' },
-              { label:'New Service Job', path:'/service-jobs', perm:'service-jobs', color:'var(--accent-500)', icon:'🔧' },
-              { label:'Record Payment', path:'/payments', perm:'payments', color:'var(--success-500)', icon:'💳' },
-              { label:'Stock Adjustment', path:'/stock', perm:'stock', color:'var(--danger-400)', icon:'📊' },
+              { label:'New Sale', path:'/pos', act:'sale.create', color:'var(--primary-500)', icon:'🛒' },
+              { label:'New Purchase Order', path:'/purchase-orders', act:'po.create', color:'var(--warning-500)', icon:'📦' },
+              { label:'New Service Job', path:'/service-jobs', act:'service.create', color:'var(--accent-500)', icon:'🔧' },
+              { label:'Record Payment', path:'/payments', act:'payment.record', color:'var(--success-500)', icon:'💳' },
+              { label:'Stock Adjustment', path:'/stock', act:'stock.adjust', color:'var(--danger-400)', icon:'📊' },
+              { label:'My Service Jobs', path:'/service-jobs', act:'service.updateStatus', color:'var(--accent-500)', icon:'🛠️' },
               { label:'View Reports', path:'/reports', perm:'reports', color:'var(--gray-400)', icon:'📈' },
-            ].map(item => (
+            ].filter(item => item.act ? canDo(item.act) : can(item.perm)).map(item => (
               <button
-                key={item.path}
+                key={item.label}
                 id={`dashboard-quick-${item.path.replace('/','')}`}
                 className="btn btn-outline"
                 style={{ justifyContent:'flex-start', gap:10, fontSize:13 }}

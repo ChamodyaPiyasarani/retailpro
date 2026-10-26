@@ -68,7 +68,7 @@ function PaymentModal({ type, onClose, onSave }) {
 
 export default function PaymentsPage() {
   const toast = useToast();
-  const { user } = useAuth();
+  const { user, canDo } = useAuth();
   const [payments, setPayments] = useState(PAYMENTS);
   const [supplierPayments, setSupplierPayments] = useState(SUPPLIER_PAYMENTS);
   const [activeTab, setActiveTab] = useState('customer');
@@ -121,9 +121,9 @@ export default function PaymentsPage() {
           <p className="page-subtitle">Track receipts, outstanding balances, and payables</p>
         </div>
         <div className="page-header-actions">
-          <button id="btn-record-payment" className="btn btn-primary" onClick={() => setModal(true)}>
+          {canDo('payment.record') && (<button id="btn-record-payment" className="btn btn-primary" onClick={() => setModal(true)}>
             <Plus size={14}/> Record Payment
-          </button>
+          </button>)}
         </div>
       </div>
 
@@ -214,14 +214,14 @@ export default function PaymentsPage() {
                     </td>
                     <td>
                       <div className="table-action-cell">
-                        <button
+                        {canDo('payment.remind') && <button
                           className="btn btn-outline btn-sm"
                           onClick={() => toast.success(`Payment reminder sent to ${c?.name} (${c?.phone || c?.email})`)}
                           title="Send Payment Reminder"
                         >
                           <Send size={12} /> Reminder
-                        </button>
-                        <button
+                        </button>}
+                        {canDo('payment.flagOverdue') && <button
                           className={`btn btn-sm ${o.flaggedOverdue ? 'btn-danger' : 'btn-ghost'}`}
                           style={{ color: o.flaggedOverdue ? '#fff' : 'var(--danger-400)' }}
                           onClick={() => {
@@ -232,7 +232,7 @@ export default function PaymentsPage() {
                           title="Flag Overdue"
                         >
                           <AlertTriangle size={12} /> Flag Overdue
-                        </button>
+                        </button>}
                       </div>
                     </td>
                   </tr>
@@ -267,14 +267,14 @@ export default function PaymentsPage() {
                     <td>
                       <div style={{ display:'flex', gap:8, alignItems:'center' }}>
                         <span className="badge badge-warning">Pending</span>
-                        <button className="btn btn-success btn-sm" onClick={() => {
+                        {canDo('payable.pay') && <button className="btn btn-success btn-sm" onClick={() => {
                           const i = PURCHASE_ORDERS.findIndex(o=>o.id===po.id);
                           if (i !== -1) PURCHASE_ORDERS[i].payableStatus = 'paid';
                           toast.success(`Payment marked as paid for ${po.id}`);
                           setActiveTab('payables');
                         }}>
                           <CheckCircle size={12}/> Mark Paid
-                        </button>
+                        </button>}
                       </div>
                     </td>
                   </tr>

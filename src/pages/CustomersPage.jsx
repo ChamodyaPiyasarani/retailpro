@@ -54,7 +54,7 @@ function CustomerModal({ customer, onClose, onSave }) {
 
 export default function CustomersPage() {
   const toast = useToast();
-  const { user } = useAuth();
+  const { user, canDo } = useAuth();
   const [customers, setCustomers] = useState(CUSTOMERS);
   const [q, setQ] = useState('');
   const [modal, setModal] = useState(null); // null | 'new' | customer obj
@@ -104,9 +104,11 @@ export default function CustomersPage() {
           <p className="page-subtitle">{customers.length} registered customers</p>
         </div>
         <div className="page-header-actions">
-          <button id="btn-new-customer" className="btn btn-primary" onClick={() => setModal('new')}>
-            <Plus size={15} /> New Customer
-          </button>
+          {canDo('customer.add') && (
+            <button id="btn-new-customer" className="btn btn-primary" onClick={() => setModal('new')}>
+              <Plus size={15} /> New Customer
+            </button>
+          )}
         </div>
       </div>
 
@@ -170,12 +172,12 @@ export default function CustomersPage() {
                     <button className="btn btn-ghost btn-sm btn-icon" title="View Details" onClick={() => setDetail(c)}>
                       <History size={14} />
                     </button>
-                    <button className="btn btn-ghost btn-sm btn-icon" title="Edit Customer" onClick={() => setModal(c)}>
+                    {canDo('customer.edit') && <button className="btn btn-ghost btn-sm btn-icon" title="Edit Customer" onClick={() => setModal(c)}>
                       <Edit2 size={14} />
-                    </button>
-                    <button className="btn btn-ghost btn-sm btn-icon" style={{ color: 'var(--danger-400)' }} title="Delete Customer" onClick={() => handleDelete(c)}>
+                    </button>}
+                    {canDo('customer.delete') && <button className="btn btn-ghost btn-sm btn-icon" style={{ color: 'var(--danger-400)' }} title="Delete Customer" onClick={() => handleDelete(c)}>
                       <Trash2 size={14} />
-                    </button>
+                    </button>}
                   </div>
                 </td>
               </tr>
@@ -245,9 +247,11 @@ export default function CustomersPage() {
             </div>
             <div className="modal-footer">
               <button className="btn btn-outline" onClick={() => setDetail(null)}>Close</button>
-              <button className="btn btn-primary" onClick={() => { setModal(detail); setDetail(null); }}>
-                <Edit2 size={14} /> Edit Customer
-              </button>
+              {canDo('customer.edit') && (
+                <button className="btn btn-primary" onClick={() => { setModal(detail); setDetail(null); }}>
+                  <Edit2 size={14} /> Edit Customer
+                </button>
+              )}
             </div>
           </div>
         </div>

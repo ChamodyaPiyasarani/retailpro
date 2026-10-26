@@ -223,7 +223,7 @@ function AdjustModal({ product, onClose, onSave }) {
 
 export default function StockPage() {
   const toast = useToast();
-  const { user, can } = useAuth();
+  const { user, canDo } = useAuth();
   const [q, setQ] = useState('');
   const [catFilter, setCatFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -338,15 +338,21 @@ export default function StockPage() {
           <p className="page-subtitle">Real-time inventory levels, serial numbers, and warehouse movements</p>
         </div>
         <div className="page-header-actions" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button className="btn btn-outline" onClick={verifyConsistency} title="Verify stock consistency against ledger">
-            <ShieldCheck size={15} /> Verify Consistency
-          </button>
-          <button className="btn btn-outline" onClick={triggerLowStockAlert} title="Check and broadcast low-stock alerts">
-            <BellRing size={15} color="var(--warning-400)" /> Trigger Low-Stock Alert
-          </button>
-          <button id="btn-add-product" className="btn btn-primary" onClick={() => setProductModal('new')}>
-            <Plus size={15} /> Add Product
-          </button>
+          {canDo('stock.verify') && (
+            <button className="btn btn-outline" onClick={verifyConsistency} title="Verify stock consistency against ledger">
+              <ShieldCheck size={15} /> Verify Consistency
+            </button>
+          )}
+          {canDo('stock.alert') && (
+            <button className="btn btn-outline" onClick={triggerLowStockAlert} title="Check and broadcast low-stock alerts">
+              <BellRing size={15} color="var(--warning-400)" /> Trigger Low-Stock Alert
+            </button>
+          )}
+          {canDo('product.add') && (
+            <button id="btn-add-product" className="btn btn-primary" onClick={() => setProductModal('new')}>
+              <Plus size={15} /> Add Product
+            </button>
+          )}
         </div>
       </div>
 
@@ -465,29 +471,29 @@ export default function StockPage() {
                     <td><span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-muted)' }}>{fmt(p.cost)}</span></td>
                     <td>
                       <div className="table-action-cell">
-                        <button
+                        {canDo('stock.adjust') && <button
                           id={`stock-adjust-${p.id}`}
                           className="btn btn-outline btn-sm"
                           onClick={() => setAdjusting(p)}
                           title="Adjust stock in/out"
                         >
                           Adjust
-                        </button>
-                        <button
+                        </button>}
+                        {canDo('product.edit') && <button
                           className="btn btn-ghost btn-sm btn-icon"
                           onClick={() => setProductModal(p)}
                           title="Edit Product Details"
                         >
                           <Edit2 size={13} />
-                        </button>
-                        <button
+                        </button>}
+                        {canDo('product.delete') && <button
                           className="btn btn-ghost btn-sm btn-icon"
                           style={{ color: 'var(--danger-400)' }}
                           onClick={() => handleDeleteProduct(p)}
                           title="Delete Product"
                         >
                           <Trash2 size={13} />
-                        </button>
+                        </button>}
                       </div>
                     </td>
                   </tr>

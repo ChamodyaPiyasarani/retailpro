@@ -118,13 +118,12 @@ function ComplaintModal({ onClose, onSave }) {
 
 export default function ReturnsPage() {
   const toast = useToast();
-  const { user, can } = useAuth();
+  const { user, canDo } = useAuth();
   const [returns, setReturns] = useState(RETURNS);
   const [complaints, setComplaints] = useState(COMPLAINTS);
   const [activeTab, setActiveTab] = useState('returns');
   const [modal, setModal] = useState(null);
   const [q, setQ] = useState('');
-  const isAdmin = can('settings');
 
   const handleReturnSave = (form) => {
     const ret = {
@@ -239,8 +238,8 @@ export default function ReturnsPage() {
           <p className="page-subtitle">{returns.filter(r=>r.status==='pending').length} pending returns · {complaints.filter(c=>c.status==='open').length} open complaints</p>
         </div>
         <div className="page-header-actions">
-          <button className="btn btn-outline" onClick={() => setModal('complaint')}><AlertTriangle size={14}/> Log Complaint</button>
-          <button className="btn btn-primary" onClick={() => setModal('return')}><Plus size={14}/> New Request</button>
+          {canDo('complaint.create') && <button className="btn btn-outline" onClick={() => setModal('complaint')}><AlertTriangle size={14}/> Log Complaint</button>}
+          {canDo('return.create') && <button className="btn btn-primary" onClick={() => setModal('return')}><Plus size={14}/> New Request</button>}
         </div>
       </div>
 
@@ -287,13 +286,13 @@ export default function ReturnsPage() {
                     </td>
                     <td>
                       <div className="table-action-cell">
-                        {r.status === 'pending' && isAdmin && (
+                        {r.status === 'pending' && canDo('return.approve') && (
                           <>
                             <button id={`approve-ret-${r.id}`} className="btn btn-success btn-sm" onClick={() => approveReturn(r, true)}><CheckCircle size={12}/> Approve</button>
                             <button className="btn btn-danger btn-sm" onClick={() => approveReturn(r, false)}><XCircle size={12}/> Reject</button>
                           </>
                         )}
-                        {r.status === 'approved' && !r.inventoryUpdated && can('stock') && (
+                        {r.status === 'approved' && !r.inventoryUpdated && canDo('return.inspect') && (
                           <>
                             <button className="btn btn-outline btn-sm" onClick={() => inspectReturn(r, true)} title="Inspect and Restock Serviceable"><PackageCheck size={12}/> Restock</button>
                             <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger-400)' }} onClick={() => inspectReturn(r, false)} title="Inspect and Write-off Damaged"><AlertOctagon size={12}/> Write-Off</button>
@@ -302,7 +301,7 @@ export default function ReturnsPage() {
                         {r.inventoryUpdated && (
                           <span className="badge badge-gray" style={{ fontSize: 10 }}>{r.inspectionResult}</span>
                         )}
-                        {r.status === 'approved' && r.refundStatus === 'pending' && can('payments') && (
+                        {r.status === 'approved' && r.refundStatus === 'pending' && canDo('refund.pay') && (
                           <button className="btn btn-primary btn-sm" onClick={() => processRefund(r)}>💳 Refund</button>
                         )}
                       </div>
@@ -342,7 +341,7 @@ export default function ReturnsPage() {
                       <div className="table-action-cell">
                         {c.status === 'open' && (
                           <>
-                            {!c.escalated && (
+                            {!c.escalated && canDo('complaint.escalate') && (
                               <button
                                 className="btn btn-outline btn-sm"
                                 style={{ color: 'var(--warning-400)' }}
@@ -352,7 +351,7 @@ export default function ReturnsPage() {
                                 <ArrowUpRight size={12}/> Escalate
                               </button>
                             )}
-                            {isAdmin && (
+                            {canDo('complaint.resolve') && (
                               <button
                                 className="btn btn-success btn-sm"
                                 onClick={() => { const r = window.prompt('Enter resolution note:'); if(r) resolveComplaint(c, r); }}

@@ -141,7 +141,7 @@ function ReceiveModal({ po, onClose, onSave }) {
 
 export default function PurchaseOrdersPage() {
   const toast = useToast();
-  const { user } = useAuth();
+  const { user, canDo } = useAuth();
   const [orders, setOrders] = useState(PURCHASE_ORDERS);
   const [q, setQ] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -203,9 +203,9 @@ export default function PurchaseOrdersPage() {
           <p className="page-subtitle">{orders.length} total orders · {orders.filter(o=>o.status==='received').length} received</p>
         </div>
         <div className="page-header-actions">
-          <button id="btn-new-po" className="btn btn-primary" onClick={() => setModal('new')}>
+          {canDo('po.create') && (<button id="btn-new-po" className="btn btn-primary" onClick={() => setModal('new')}>
             <Plus size={15}/> New Purchase Order
-          </button>
+          </button>)}
         </div>
       </div>
 
@@ -259,7 +259,7 @@ export default function PurchaseOrdersPage() {
                   </td>
                   <td>
                     <div className="table-action-cell">
-                      {(po.status === 'approved' || po.status === 'ordered') && (
+                      {(po.status === 'approved' || po.status === 'ordered') && canDo('po.receive') && (
                         <button id={`po-receive-${po.id}`} className="btn btn-success btn-sm" onClick={() => setReceiving(po)}>
                           <Package size={13}/> Receive
                         </button>

@@ -14,12 +14,13 @@ const TYPE_ICON = { installation:'🔌', repair:'🔧', maintenance:'🛠️' };
 const PRIORITY_COLOR = { normal:'gray', high:'warning', urgent:'danger' };
 
 function JobModal({ job, onClose, onSave }) {
+  const { canDo } = useAuth();
   const [form, setForm] = useState(job || {
     customerId:'', productId:'', serialNo:'', salesOrderId:'',
     type:'repair', priority:'normal', description:'', assignedTo:'',
   });
   const set = (k,v) => setForm(f=>({...f,[k]:v}));
-  const technicians = USERS.filter(u => u.role === 'technician' || u.role === 'admin');
+  const technicians = USERS.filter(u => u.role === 'technician');
   const customerOrders = form.customerId ? SALES_ORDERS.filter(o=>o.customerId===form.customerId) : [];
 
   return (
@@ -59,7 +60,7 @@ function JobModal({ job, onClose, onSave }) {
               <input className="form-input" value={form.serialNo} onChange={e=>set('serialNo',e.target.value)} placeholder="e.g. SN-20240112" />
             </div>
           </div>
-          <div className="form-row-3">
+          <div className={canDo('service.assign') ? 'form-row-3' : 'form-row-2'}>
             <div className="form-group">
               <label className="form-label">Job Type *</label>
               <select className="form-select" value={form.type} onChange={e=>set('type',e.target.value)}>
@@ -76,13 +77,15 @@ function JobModal({ job, onClose, onSave }) {
                 <option value="urgent">Urgent</option>
               </select>
             </div>
-            <div className="form-group">
-              <label className="form-label">Assign Technician</label>
-              <select className="form-select" value={form.assignedTo} onChange={e=>set('assignedTo',e.target.value)}>
-                <option value="">Unassigned</option>
-                {technicians.map(t=><option key={t.id} value={t.id}>{t.avatar} {t.name}</option>)}
-              </select>
-            </div>
+            {canDo('service.assign') && (
+              <div className="form-group">
+                <label className="form-label">Assign Technician</label>
+                <select className="form-select" value={form.assignedTo} onChange={e=>set('assignedTo',e.target.value)}>
+                  <option value="">Unassigned</option>
+                  {technicians.map(t=><option key={t.id} value={t.id}>{t.avatar} {t.name}</option>)}
+                </select>
+              </div>
+            )}
           </div>
           <div className="form-group">
             <label className="form-label">Description / Fault Details *</label>
@@ -101,7 +104,7 @@ function JobModal({ job, onClose, onSave }) {
 }
 
 function JobDetailModal({ job, onClose, onUpdate }) {
-  const { user } = useAuth();
+  const { user, canDo } = useAuth();
   const toast = useToast();
   const [status, setStatus] = useState(job.status);
   const [visitNote, setVisitNote] = useState('');
@@ -172,7 +175,8 @@ function JobDetailModal({ job, onClose, onUpdate }) {
               </div>
             </div>
 
-            {/* Status update */}
+            {/* Status update (technician only) */}
+            {canDo('service.updateStatus') && (
             <div className="card-elevated" style={{ padding:14 }}>
               <div style={{ fontSize:12, fontWeight:700, textTransform:'uppercase', letterSpacing:.5, color:'var(--text-muted)', marginBottom:10 }}>Update Status</div>
               <select className="form-select" value={status} onChange={e=>setStatus(e.target.value)} style={{ marginBottom:8 }}>
@@ -182,6 +186,7 @@ function JobDetailModal({ job, onClose, onUpdate }) {
                 Update Status
               </button>
             </div>
+            )}
 
             {/* Parts Used */}
             <div className="card-elevated" style={{ padding:14 }}>
@@ -191,14 +196,16 @@ function JobDetailModal({ job, onClose, onUpdate }) {
                 const prod = getProduct(p.productId);
                 return <div key={i} style={{ fontSize:13, color:'var(--text-secondary)', marginBottom:4 }}>🔧 {prod?.name || p.productId} × {p.qty}</div>;
               })}
+              {canDo('service.issueParts') && (
               <div style={{ display:'flex', gap:8, marginTop:8 }}>
                 <select className="form-select" value={partId} onChange={e=>setPartId(e.target.value)} style={{ flex:1 }}>
                   <option value="">Select spare part…</option>
                   {PRODUCTS.map(p=><option key={p.id} value={p.id}>{p.emoji} {p.name} (Stock: {p.stock})</option>)}
                 </select>
                 <input type="number" className="form-input" value={partQty} min={1} onChange={e=>setPartQty(+e.target.value)} style={{ width:60 }} />
-                <button className="btn btn-outline btn-sm" onClick={addPart}><Plus size={13}/></button>
+                <button className="btn btn-outline btn-sm" onClick={addPart} title="Issue spare part"><Plus size={13}/></button>
               </div>
+              )}
             </div>
           </div>
 
@@ -219,12 +226,14 @@ function JobDetailModal({ job, onClose, onUpdate }) {
                 ))}
               </div>
 
+              {canDo('service.logVisit') && (
               <div style={{ marginTop:12, display:'flex', flexDirection:'column', gap:8 }}>
                 <textarea className="form-textarea" rows={2} value={visitNote} onChange={e=>setVisitNote(e.target.value)} placeholder="Log this visit — work done, findings, next steps…" />
                 <button className="btn btn-accent btn-sm" style={{ justifyContent:'center' }} onClick={addVisit} disabled={!visitNote}>
                   <Plus size={13}/> Log Visit
                 </button>
               </div>
+              )}
             </div>
           </div>
         </div>
@@ -235,7 +244,7 @@ function JobDetailModal({ job, onClose, onUpdate }) {
 
 export default function ServiceJobsPage() {
   const toast = useToast();
-  const { user } = useAuth();
+  const { user, canDo } = useAuth();
   const [jobs, setJobs] = useState(SERVICE_JOBS);
   const [q, setQ] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -243,7 +252,10 @@ export default function ServiceJobsPage() {
   const [modal, setModal] = useState(null);
   const [detail, setDetail] = useState(null);
 
-  const filtered = jobs.filter(j => {
+  // Technicians see only the jobs assigned to them ("View assigned service jobs")
+  const visibleJobs = user?.role === 'technician' ? jobs.filter(j => j.assignedTo === user.id) : jobs;
+
+  const filtered = visibleJobs.filter(j => {
     const c = getCustomer(j.customerId);
     return (statusFilter === 'all' || j.status === statusFilter) &&
       (typeFilter === 'all' || j.type === typeFilter) &&
@@ -278,12 +290,14 @@ export default function ServiceJobsPage() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Service Jobs</h1>
-          <p className="page-subtitle">{jobs.length} total · {jobs.filter(j=>j.status==='pending').length} pending · {jobs.filter(j=>j.status==='in-progress').length} in progress</p>
+          <p className="page-subtitle">{visibleJobs.length} total · {visibleJobs.filter(j=>j.status==='pending').length} pending · {visibleJobs.filter(j=>j.status==='in-progress').length} in progress</p>
         </div>
         <div className="page-header-actions">
-          <button id="btn-new-service-job" className="btn btn-primary" onClick={() => setModal('new')}>
-            <Plus size={15}/> New Job
-          </button>
+          {canDo('service.create') && (
+            <button id="btn-new-service-job" className="btn btn-primary" onClick={() => setModal('new')}>
+              <Plus size={15}/> New Job
+            </button>
+          )}
         </div>
       </div>
 
