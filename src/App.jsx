@@ -20,6 +20,7 @@ import PaymentsPage from './pages/PaymentsPage';
 import UsersPage from './pages/UsersPage';
 import ReportsPage from './pages/ReportsPage';
 import SettingsPage from './pages/SettingsPage';
+import WarrantyPage from './pages/WarrantyPage';
 
 function ProtectedRoute({ children, perm }) {
   const { user, can } = useAuth();
@@ -118,6 +119,15 @@ export default function App() {
               element={
                 <ProtectedRoute perm="stock-movements">
                   <StockPage />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/warranty"
+              element={
+                <ProtectedRoute perm="warranty">
+                  <WarrantyPage />
                 </ProtectedRoute>
               }
             />

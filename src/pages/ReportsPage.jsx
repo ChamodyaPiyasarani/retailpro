@@ -6,7 +6,7 @@ import {
 import { Download, FileText, Printer, CheckCircle, AlertTriangle, TrendingUp, DollarSign } from 'lucide-react';
 import {
   SALES_ORDERS, SERVICE_JOBS, PRODUCTS, PURCHASE_ORDERS, PAYMENTS,
-  CUSTOMERS, SUPPLIERS, CATEGORIES, fmt, getLowStockProducts, getCustomer, getProduct, getUser
+  CUSTOMERS, SUPPLIERS, CATEGORIES, REPORT_SCHEDULES, RETURNS, fmt, getLowStockProducts, getCustomer, getProduct, getUser
 } from '../data/mockData';
 import { format, subMonths } from 'date-fns';
 import { useToast } from '../context/ToastContext';
@@ -63,8 +63,31 @@ const stockByCategory = [
 
 export default function ReportsPage() {
   const toast = useToast();
-  const { user } = useAuth();
-  const [reportType, setReportType] = useState('sales');
+  const { user, canDo } = useAuth();
+  // Report types each role may generate (from the use case diagram)
+  const REPORT_TYPES = {
+    admin: ['consolidated', 'sales', 'stock', 'service', 'finance'],
+    sales: ['sales'], storekeeper: ['stock'], purchase: ['stock'], finance: ['finance', 'sales'], technician: ['service'],
+  };
+  const REPORT_LABELS = { consolidated: 'Consolidated (all departments)', sales: 'Sales & Revenue', stock: 'Stock & Valuation', service: 'Service & Repairs', finance: 'Financial Statement' };
+  const allowedTypes = REPORT_TYPES[user?.role] || ['sales'];
+  const [reportType, setReportType] = useState(allowedTypes[0]);
+  const [schedules, setSchedules] = useState(REPORT_SCHEDULES);
+  const [newSchedule, setNewSchedule] = useState({ type: allowedTypes[0], frequency: 'weekly', recipients: user?.email || '' });
+
+  // Schedule automated report
+  const addSchedule = () => {
+    const rs = { id: `RS${String(REPORT_SCHEDULES.length + 1).padStart(3, '0')}`, type: newSchedule.type, frequency: newSchedule.frequency,
+      recipients: newSchedule.recipients.split(',').map(r => r.trim()).filter(Boolean), active: true, lastRun: null, createdBy: user?.id };
+    REPORT_SCHEDULES.push(rs);
+    setSchedules([...REPORT_SCHEDULES]);
+    toast.success(`${REPORT_LABELS[rs.type] || rs.type} report scheduled ${rs.frequency}`);
+  };
+  const toggleSchedule = (id) => {
+    const r = REPORT_SCHEDULES.find(x => x.id === id);
+    if (r) r.active = !r.active;
+    setSchedules([...REPORT_SCHEDULES]);
+  };
 
   const totalRevenue = SALES_ORDERS.reduce((s, o) => s + o.grandTotal, 0);
   const totalCost = PURCHASE_ORDERS.filter(p => p.status === 'received').reduce((s, p) => s + p.grandTotal, 0);
@@ -74,7 +97,36 @@ export default function ReportsPage() {
   // Structured PDF Export Handler
   const exportPDF = () => {
     try {
-      if (reportType === 'sales') {
+      if (reportType === 'consolidated') {
+        const stockValue = PRODUCTS.reduce((a, p) => a + p.stock * p.cost, 0);
+        const paidIn = PAYMENTS.reduce((a, p) => a + p.amount, 0);
+        const payablePending = PURCHASE_ORDERS.filter(p => p.payableStatus === 'pending').reduce((a, p) => a + p.grandTotal, 0);
+        const rows = [
+          ['Sales', 'Orders / revenue', `${SALES_ORDERS.length} orders`, fmt(totalRevenue)],
+          ['Sales', 'Outstanding customer balance', `${SALES_ORDERS.filter(o => o.balance > 0).length} invoices`, fmt(SALES_ORDERS.reduce((a, o) => a + o.balance, 0))],
+          ['Purchasing', 'Purchase orders received', `${PURCHASE_ORDERS.filter(p => p.status === 'received').length} of ${PURCHASE_ORDERS.length}`, fmt(totalCost)],
+          ['Inventory', 'Stock value at cost', `${PRODUCTS.length} products, ${getLowStockProducts().length} low`, fmt(stockValue)],
+          ['Service', 'Service jobs', `${SERVICE_JOBS.filter(j => j.status === 'completed').length} completed of ${SERVICE_JOBS.length}`, fmt(SERVICE_JOBS.reduce((a, j) => a + (j.serviceFee || 0), 0))],
+          ['Returns', 'Exchange / refund requests', `${RETURNS.filter(r => r.status === 'pending').length} pending of ${RETURNS.length}`, fmt(RETURNS.reduce((a, r) => a + (r.refundAmount || 0), 0))],
+          ['Finance', 'Customer payments received', `${PAYMENTS.length} payments`, fmt(paidIn)],
+          ['Finance', 'Supplier payables pending', `${PURCHASE_ORDERS.filter(p => p.payableStatus === 'pending').length} payables`, fmt(payablePending)],
+        ];
+        generateStructuredPDF({
+          title: 'Consolidated Business Report',
+          subtitle: 'Sales, purchasing, inventory, service and finance in one summary',
+          reportType: 'consolidated',
+          generatedBy: user?.name || 'Authorized Admin',
+          fileName: `Consolidated_Report_${format(new Date(), 'yyyy-MM-dd')}.pdf`,
+          kpis: [
+            { label: 'Revenue', value: fmt(totalRevenue), color: '#3b82f6' },
+            { label: 'Purchases', value: fmt(totalCost), color: '#ef4444' },
+            { label: 'Gross Profit', value: fmt(grossProfit), color: '#10b981' },
+            { label: 'Stock Value', value: fmt(stockValue), color: '#8b5cf6' },
+          ],
+          headers: ['Department', 'Measure', 'Count', 'Amount (LKR)'],
+          rows,
+        });
+      } else if (reportType === 'sales') {
         const headers = ['Invoice No', 'Date', 'Customer', 'Items', 'Status', 'Total (LKR)', 'Paid (LKR)', 'Balance'];
         const rows = SALES_ORDERS.map(o => {
           const cust = getCustomer(o.customerId);
@@ -149,11 +201,11 @@ export default function ReportsPage() {
           }
         });
       } else if (reportType === 'service') {
-        const headers = ['Job ID', 'Customer', 'Product', 'Type', 'Status', 'Technician', 'Service Fee', 'Scheduled'];
+        const headers = ['Job ID', 'Customer', 'Product', 'Type', 'Status', 'Technician', 'Service Fee', 'Billing'];
         const rows = SERVICE_JOBS.map(j => {
           const cust = getCustomer(j.customerId);
           const prod = getProduct(j.productId);
-          const tech = getUser(j.technicianId);
+          const tech = getUser(j.assignedTo);
           return [
             j.id,
             cust?.name || 'Customer',
@@ -161,8 +213,8 @@ export default function ReportsPage() {
             j.type?.toUpperCase(),
             j.status?.toUpperCase(),
             tech?.name || 'Unassigned',
-            fmt(j.laborCharge || 4500),
-            j.scheduledDate || '—'
+            fmt(j.serviceFee || 0),
+            j.billingStatus || 'unbilled'
           ];
         });
 
@@ -176,7 +228,7 @@ export default function ReportsPage() {
             { label: 'Total Job Tickets', value: SERVICE_JOBS.length, color: '#3b82f6' },
             { label: 'Completed Jobs', value: SERVICE_JOBS.filter(j => j.status === 'completed').length, color: '#10b981' },
             { label: 'In Progress / Assigned', value: SERVICE_JOBS.filter(j => j.status !== 'completed').length, color: '#f59e0b' },
-            { label: 'Warranty Claims', value: SERVICE_JOBS.filter(j => j.warrantyClaim).length, color: '#8b5cf6' }
+            { label: 'Under Warranty', value: SERVICE_JOBS.filter(j => j.warrantyValid).length, color: '#8b5cf6' }
           ],
           headers,
           rows
@@ -234,7 +286,11 @@ export default function ReportsPage() {
   };
 
   const exportCSV = () => {
-    const data = reportType === 'sales' ? SALES_ORDERS : reportType === 'stock' ? PRODUCTS : SERVICE_JOBS;
+    const data = reportType === 'sales' ? SALES_ORDERS : reportType === 'stock' ? PRODUCTS : reportType === 'finance' ? PAYMENTS
+      : reportType === 'consolidated' ? [
+        { department: 'Sales', amount: totalRevenue }, { department: 'Purchasing', amount: totalCost },
+        { department: 'Service', amount: SERVICE_JOBS.reduce((a, j) => a + (j.serviceFee || 0), 0) }, { department: 'Finance (received)', amount: PAYMENTS.reduce((a, p) => a + p.amount, 0) },
+      ] : SERVICE_JOBS;
     const header = Object.keys(data[0] || {}).filter(k => typeof data[0][k] !== 'object').join(',');
     const rows = data.map(r => Object.entries(r).filter(([_, v]) => typeof v !== 'object').map(([_, v]) => v).join(','));
     const csv = [header, ...rows].join('\n');
@@ -266,10 +322,7 @@ export default function ReportsPage() {
             onChange={e => setReportType(e.target.value)}
             style={{ width: 190 }}
           >
-            <option value="sales">Sales & Revenue</option>
-            <option value="stock">Stock & Valuation</option>
-            <option value="service">Service & Repairs</option>
-            <option value="finance">Financial Statement</option>
+            {allowedTypes.map(t => <option key={t} value={t}>{REPORT_LABELS[t]}</option>)}
           </select>
 
           {/* Download as Structured PDF Button */}
@@ -288,6 +341,41 @@ export default function ReportsPage() {
           </button>
         </div>
       </div>
+
+      {/* Scheduled reports (Schedule automated report) */}
+      {canDo('report.schedule') && (
+        <div className="card" style={{ marginBottom: 24 }}>
+          <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>Scheduled Reports</div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>Reports that are e-mailed automatically on a schedule</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+            <select id="schedule-type" className="form-select" value={newSchedule.type} onChange={e => setNewSchedule(n => ({ ...n, type: e.target.value }))} style={{ width: 220 }}>
+              {allowedTypes.map(t => <option key={t} value={t}>{REPORT_LABELS[t]}</option>)}
+            </select>
+            <select id="schedule-frequency" className="form-select" value={newSchedule.frequency} onChange={e => setNewSchedule(n => ({ ...n, frequency: e.target.value }))} style={{ width: 130 }}>
+              <option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option>
+            </select>
+            <input id="schedule-recipients" className="form-input" value={newSchedule.recipients} onChange={e => setNewSchedule(n => ({ ...n, recipients: e.target.value }))} placeholder="E-mails, separated by commas" style={{ flex: 1, minWidth: 200 }} />
+            <button id="btn-add-schedule" className="btn btn-primary" disabled={!newSchedule.recipients.trim()} onClick={addSchedule}>Schedule Report</button>
+          </div>
+          <div className="table-container">
+            <table className="table">
+              <thead><tr><th>ID</th><th>Report</th><th>Frequency</th><th>Recipients</th><th>Last run</th><th>Active</th></tr></thead>
+              <tbody>
+                {schedules.map(r => (
+                  <tr key={r.id}>
+                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.id}</td>
+                    <td>{REPORT_LABELS[r.type] || r.type.replace(/_/g, ' ')}</td>
+                    <td style={{ textTransform: 'capitalize' }}>{r.frequency}</td>
+                    <td style={{ fontSize: 12 }}>{r.recipients.join(', ')}</td>
+                    <td style={{ fontSize: 12 }}>{r.lastRun || '—'}</td>
+                    <td><input type="checkbox" checked={r.active} onChange={() => toggleSchedule(r.id)} aria-label={`Active ${r.id}`} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Financial Summary KPIs */}
       <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 24 }}>

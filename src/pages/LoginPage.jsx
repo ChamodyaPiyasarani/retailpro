@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { USERS, ROLES } from '../data/mockData';
 
-function ResetPasswordModal({ onClose, onReset }) {
+function ResetPasswordModal({ onClose, onReset, emailOnly }) {
   const [email, setEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -14,7 +14,7 @@ function ResetPasswordModal({ onClose, onReset }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (newPassword !== confirmPassword) {
+    if (!emailOnly && newPassword !== confirmPassword) {
       setMsg({ type: 'error', text: 'Passwords do not match!' });
       return;
     }
@@ -39,7 +39,9 @@ function ResetPasswordModal({ onClose, onReset }) {
         <form onSubmit={handleSubmit}>
           <div className="modal-body">
             <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-              Enter your registered staff email address to authenticate and set a new password.
+              {emailOnly
+                ? 'Enter your staff email address. We will send you a link to set a new password.'
+                : 'Enter your registered staff email address to authenticate and set a new password.'}
             </p>
 
             <div className="form-group">
@@ -54,6 +56,7 @@ function ResetPasswordModal({ onClose, onReset }) {
               />
             </div>
 
+            {!emailOnly && (<>
             <div className="form-group">
               <label className="form-label">New Password *</label>
               <input
@@ -78,6 +81,8 @@ function ResetPasswordModal({ onClose, onReset }) {
               />
             </div>
 
+            </>)}
+
             {msg && (
               <div className={`alert alert-${msg.type === 'success' ? 'success' : 'danger'}`} style={{ fontSize: 13 }}>
                 {msg.type === 'success' ? '✓ ' : '⚠️ '}{msg.text}
@@ -86,8 +91,8 @@ function ResetPasswordModal({ onClose, onReset }) {
           </div>
           <div className="modal-footer">
             <button type="button" className="btn btn-outline" onClick={onClose}>Cancel</button>
-            <button type="submit" className="btn btn-primary" disabled={submitting || !email || !newPassword}>
-              {submitting ? 'Resetting…' : 'Update Password'}
+            <button type="submit" className="btn btn-primary" disabled={submitting || !email || (!emailOnly && !newPassword)}>
+              {submitting ? 'Sending…' : emailOnly ? 'Send Reset Link' : 'Update Password'}
             </button>
           </div>
         </form>
@@ -97,7 +102,7 @@ function ResetPasswordModal({ onClose, onReset }) {
 }
 
 export default function LoginPage() {
-  const { login, resetPassword, loading, error } = useAuth();
+  const { login, resetPassword, loading, error, authMode } = useAuth();
   const toast = useToast();
   const navigate = useNavigate();
 
@@ -130,6 +135,9 @@ export default function LoginPage() {
         <div className="login-simple-logo">🖥️</div>
         <h1 className="login-simple-title">Rajida Holdings</h1>
         <p className="login-simple-subtitle">Inventory, Sales &amp; Purchase System</p>
+        <div className={`login-mode ${authMode}`}>
+          {authMode === 'supabase' ? 'Signing in with Supabase' : 'Demo mode (sample data)'}
+        </div>
 
         <div className="form-group">
           <label className="form-label" htmlFor="login-email">Email</label>
@@ -213,6 +221,7 @@ export default function LoginPage() {
         <ResetPasswordModal
           onClose={() => setShowResetModal(false)}
           onReset={handleResetPassword}
+          emailOnly={authMode === 'supabase'}
         />
       )}
     </div>

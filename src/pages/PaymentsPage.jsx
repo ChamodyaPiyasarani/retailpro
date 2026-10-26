@@ -2,8 +2,7 @@ import { useState } from 'react';
 import { Plus, Search, CreditCard, DollarSign, Clock, CheckCircle, Send, AlertTriangle } from 'lucide-react';
 import {
   PAYMENTS, SUPPLIER_PAYMENTS, SALES_ORDERS, CUSTOMERS, SUPPLIERS, PURCHASE_ORDERS,
-  fmt, newPayId, getCustomer, getSupplier, getSalesOrder
-} from '../data/mockData';
+  fmt, newPayId, getCustomer, getSupplier, getSalesOrder, RECONCILIATIONS, getAllTransactions } from '../data/mockData';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
 import { format } from 'date-fns';
@@ -74,6 +73,7 @@ export default function PaymentsPage() {
   const [activeTab, setActiveTab] = useState('customer');
   const [modal, setModal] = useState(false);
   const [q, setQ] = useState('');
+  const [, bump] = useState(0);
 
   const totalReceived = payments.reduce((s,p)=>s+p.amount,0);
   const totalPaid = supplierPayments.reduce((s,p)=>s+p.amount,0);
@@ -150,12 +150,109 @@ export default function PaymentsPage() {
           <button className={`tab-btn ${activeTab==='customer'?'active':''}`} onClick={()=>setActiveTab('customer')}>💳 Customer Payments</button>
           <button className={`tab-btn ${activeTab==='outstanding'?'active':''}`} onClick={()=>setActiveTab('outstanding')}>⏰ Outstanding</button>
           <button className={`tab-btn ${activeTab==='payables'?'active':''}`} onClick={()=>setActiveTab('payables')}>🏭 Supplier Payables</button>
+          <button id="tab-transactions" className={`tab-btn ${activeTab==='transactions'?'active':''}`} onClick={()=>setActiveTab('transactions')}>📒 All Transactions</button>
+          <button id="tab-reconcile" className={`tab-btn ${activeTab==='reconcile'?'active':''}`} onClick={()=>setActiveTab('reconcile')}>⚖️ Reconcile</button>
         </div>
         <div className="search-bar" style={{ marginLeft:'auto' }}>
           <Search size={14} color="var(--text-muted)"/>
           <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search…" style={{ width:200 }} />
         </div>
       </div>
+
+      {activeTab === 'transactions' && (() => {
+        const rows = getAllTransactions().filter(t => !q || `${t.id} ${t.party} ${t.ref} ${t.kind}`.toLowerCase().includes(q.toLowerCase()));
+        const inTotal = rows.filter(t => t.amount > 0).reduce((a, t) => a + t.amount, 0);
+        const outTotal = rows.filter(t => t.amount < 0).reduce((a, t) => a - t.amount, 0);
+        return (
+          <div>
+            <div style={{ display:'flex', gap:16, fontSize:13, marginBottom:10, flexWrap:'wrap' }}>
+              <span>Money in: <strong style={{ color:'var(--success-400)', fontFamily:'var(--font-mono)' }}>{fmt(inTotal)}</strong></span>
+              <span>Money out: <strong style={{ color:'var(--danger-400)', fontFamily:'var(--font-mono)' }}>{fmt(outTotal)}</strong></span>
+              <span>Net: <strong style={{ fontFamily:'var(--font-mono)' }}>{fmt(inTotal - outTotal)}</strong></span>
+            </div>
+            <div className="table-container">
+              <table className="table">
+                <thead><tr><th>Date</th><th>Transaction</th><th>Type</th><th>Customer / Supplier</th><th>Reference</th><th>Method</th><th>Amount</th></tr></thead>
+                <tbody>
+                  {rows.map(t => (
+                    <tr key={t.id}>
+                      <td style={{ fontSize:12 }}>{t.date}</td>
+                      <td style={{ fontFamily:'var(--font-mono)', fontSize:12 }}>{t.id}</td>
+                      <td><span className={`badge badge-${t.amount >= 0 ? 'success' : 'danger'}`}>{t.kind}</span></td>
+                      <td>{t.party}</td>
+                      <td style={{ fontFamily:'var(--font-mono)', fontSize:12 }}>{t.ref}</td>
+                      <td style={{ fontSize:12, textTransform:'capitalize' }}>{t.method}</td>
+                      <td style={{ fontFamily:'var(--font-mono)', fontWeight:700, color: t.amount >= 0 ? 'var(--success-400)' : 'var(--danger-400)' }}>{t.amount >= 0 ? '+' : '−'}{fmt(Math.abs(t.amount))}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
+
+      {activeTab === 'reconcile' && (() => {
+        const paidFor = (soId) => PAYMENTS.filter(p => p.salesOrderId === soId && !p.note?.startsWith('Refund')).reduce((a, p) => a + p.amount, 0);
+        const sales = SALES_ORDERS.map(o => ({ o, received: paidFor(o.id), ok: paidFor(o.id) === (o.amountPaid || 0) }));
+        const supPaid = (poId) => SUPPLIER_PAYMENTS.filter(sp => sp.purchaseOrderId === poId && sp.date).reduce((a, sp) => a + sp.amount, 0);
+        const purchases = PURCHASE_ORDERS.filter(po => po.status === 'received').map(po => {
+          const paid = supPaid(po.id);
+          const ok = po.payableStatus === 'paid' ? paid === po.grandTotal : paid === 0;
+          return { po, paid, ok };
+        });
+        const issues = sales.filter(r => !r.ok).length + purchases.filter(r => !r.ok).length;
+        const last = RECONCILIATIONS[RECONCILIATIONS.length - 1];
+        return (
+          <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+            <div className={`alert alert-${issues ? 'warning' : 'success'}`} style={{ fontSize:13, display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
+              <span>{issues ? `${issues} record(s) do not match. Check them before reconciling.` : 'All sales and purchase payments match their orders.'}</span>
+              {last && <span style={{ color:'var(--text-muted)' }}>Last reconciled {last.date} ({last.result})</span>}
+              {canDo('payment.reconcile') && (
+                <button id="btn-reconcile" className="btn btn-primary btn-sm" style={{ marginLeft:'auto' }} onClick={() => {
+                  RECONCILIATIONS.push({ id:`REC-${RECONCILIATIONS.length+1}`, date: format(new Date(),'yyyy-MM-dd'), userId: user?.id, result: issues ? `${issues} mismatch(es)` : 'balanced' });
+                  toast.success(issues ? `Reconciliation saved with ${issues} mismatch(es)` : 'Sales and purchases reconciled');
+                  bump(n => n + 1);
+                }}>Mark Reconciled</button>
+              )}
+            </div>
+            <div className="table-container">
+              <table className="table">
+                <thead><tr><th>Invoice</th><th>Customer</th><th>Invoice total</th><th>Recorded paid</th><th>Payments received</th><th>Result</th></tr></thead>
+                <tbody>
+                  {sales.map(({ o, received, ok }) => (
+                    <tr key={o.id}>
+                      <td style={{ fontFamily:'var(--font-mono)', fontSize:12 }}>{o.invoiceNo}</td>
+                      <td>{getCustomer(o.customerId)?.name}</td>
+                      <td style={{ fontFamily:'var(--font-mono)' }}>{fmt(o.grandTotal)}</td>
+                      <td style={{ fontFamily:'var(--font-mono)' }}>{fmt(o.amountPaid || 0)}</td>
+                      <td style={{ fontFamily:'var(--font-mono)' }}>{fmt(received)}</td>
+                      <td><span className={`badge badge-${ok ? 'success' : 'danger'}`}>{ok ? 'Match' : 'Mismatch'}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="table-container">
+              <table className="table">
+                <thead><tr><th>Purchase order</th><th>Supplier</th><th>Order total</th><th>Payable</th><th>Supplier payments</th><th>Result</th></tr></thead>
+                <tbody>
+                  {purchases.map(({ po, paid, ok }) => (
+                    <tr key={po.id}>
+                      <td style={{ fontFamily:'var(--font-mono)', fontSize:12 }}>{po.id}</td>
+                      <td>{getSupplier(po.supplierId)?.name}</td>
+                      <td style={{ fontFamily:'var(--font-mono)' }}>{fmt(po.grandTotal)}</td>
+                      <td><span className={`badge badge-${po.payableStatus === 'paid' ? 'success' : 'warning'}`}>{po.payableStatus}</span></td>
+                      <td style={{ fontFamily:'var(--font-mono)' }}>{fmt(paid)}</td>
+                      <td><span className={`badge badge-${ok ? 'success' : 'danger'}`}>{ok ? 'Match' : 'Mismatch'}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
 
       {activeTab === 'customer' && (
         <div className="table-container">
@@ -270,6 +367,9 @@ export default function PaymentsPage() {
                         {canDo('payable.pay') && <button className="btn btn-success btn-sm" onClick={() => {
                           const i = PURCHASE_ORDERS.findIndex(o=>o.id===po.id);
                           if (i !== -1) PURCHASE_ORDERS[i].payableStatus = 'paid';
+                          const sp = SUPPLIER_PAYMENTS.find(x => x.purchaseOrderId === po.id);
+                          const rec = { supplierId: po.supplierId, purchaseOrderId: po.id, amount: po.grandTotal, method: 'transfer', date: format(new Date(),'yyyy-MM-dd'), recordedBy: user?.id, note: `${po.id} settled`, status: 'paid' };
+                          if (sp) Object.assign(sp, rec); else SUPPLIER_PAYMENTS.push({ id: `SPAY-${String(SUPPLIER_PAYMENTS.length+1).padStart(3,'0')}`, ...rec });
                           toast.success(`Payment marked as paid for ${po.id}`);
                           setActiveTab('payables');
                         }}>

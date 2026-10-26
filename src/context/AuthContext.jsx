@@ -1,5 +1,25 @@
-import { createContext, useContext, useState, useCallback } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { USERS, ROLES, AUDIT_LOG } from '../data/mockData';
+import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
+
+// Turn a role name from the database ("Sales Staff / Cashier", "storekeeper"...) into the app's role key
+const roleKeyFrom = (name) => {
+  const n = (name || '').toLowerCase();
+  if (!n) return null;
+  if (n.includes('admin') || (n.includes('manager') && !n.includes('purchas') && !n.includes('financ'))) return 'admin';
+  if (n.includes('sales') || n.includes('cashier')) return 'sales';
+  if (n.includes('store')) return 'storekeeper';
+  if (n.includes('purchas')) return 'purchase';
+  if (n.includes('financ')) return 'finance';
+  if (n.includes('tech') || n.includes('engineer')) return 'technician';
+  return ROLES[n] ? n : null;
+};
+
+const auditLogin = (u) => AUDIT_LOG.unshift({
+  id: `AL${Date.now()}`, action: 'LOGIN', userId: u.id,
+  detail: `${u.name} (${ROLES[u.role]?.label || u.role}) signed in successfully`,
+  timestamp: new Date().toISOString(),
+});
 
 const AuthContext = createContext(null);
 
@@ -16,7 +36,7 @@ export const PERMISSIONS = {
   ],
   sales: [
     'dashboard', 'pos', 'sales', 'invoices', 'customers',
-    'products', 'stock',
+    'products', 'stock', 'warranty', // Check product warranty status
     'service-jobs', // Register installation / delivery request linked to sales order
     'returns', 'complaints', // Process exchange request, check warranty, process refund, log complaints
     'reports', // Generate sales report
@@ -60,7 +80,7 @@ export const ACTIONS = {
     'product.add', 'product.edit',
     'service.create', 'service.assign',
     'return.approve', 'complaint.escalate', 'complaint.resolve',
-    'user.manage', 'settings.manage', 'report.export',
+    'user.manage', 'settings.manage', 'report.export', 'report.schedule',
   ],
   sales: [
     'sale.create',
@@ -76,17 +96,18 @@ export const ACTIONS = {
     'report.export',
   ],
   purchase: [
-    'po.create', 'po.receive',
+    'po.create', 'po.receive', 'po.approve', 'po.edit', 'po.reorder', 'quote.request',
     'supplier.add', 'supplier.edit',
     'report.export',
   ],
   finance: [
     'payment.record', 'payment.remind', 'payment.flagOverdue', 'payable.pay',
     'refund.pay', 'customer.edit', // customer.edit = approve credit limit
+    'service.bill', 'payment.reconcile', 'report.schedule',
     'report.export',
   ],
   technician: [
-    'service.updateStatus', 'service.logVisit',
+    'service.updateStatus', 'service.logVisit', 'service.recordRepair',
   ],
 };
 
@@ -95,42 +116,78 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  // Load the staff profile (user + role tables) for a Supabase Auth user
+  const loadProfile = useCallback(async (authUser) => {
+    const { data: profile, error: pErr } = await supabase
+      .from('user')
+      .select('user_id, full_name, email, is_active, is_locked, user_type, role:role_id ( role_name )')
+      .eq('user_id', authUser.id)
+      .maybeSingle();
+    if (pErr) return { error: 'Could not load your staff profile. ' + pErr.message };
+    if (profile && (profile.is_locked || profile.is_active === false)) {
+      return { error: 'Your account has been locked by Administrator. Contact management.' };
+    }
+    // demo record with the same e-mail keeps the links to the sample data (orders, jobs...)
+    const demo = USERS.find(u => u.email.toLowerCase() === (authUser.email || '').toLowerCase());
+    const role = roleKeyFrom(profile?.role?.role_name) || roleKeyFrom(profile?.user_type) || demo?.role;
+    if (!role) return { error: 'No role is assigned to this account. Ask the Administrator to assign one.' };
+    return {
+      user: {
+        ...(demo || {}),
+        id: demo?.id || authUser.id,
+        authId: authUser.id,
+        name: profile?.full_name || demo?.name || authUser.email,
+        email: authUser.email,
+        avatar: demo?.avatar || '👤',
+        role,
+        source: 'supabase',
+        permissions: PERMISSIONS[role] || [],
+      },
+    };
+  }, []);
+
+  // Keep the user signed in after a page refresh (Supabase session)
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    let cancelled = false;
+    supabase.auth.getSession().then(async ({ data }) => {
+      if (cancelled || !data?.session?.user) return;
+      const res = await loadProfile(data.session.user);
+      if (!cancelled && res.user) setUser(res.user);
+    });
+    return () => { cancelled = true; };
+  }, [loadProfile]);
+
   const login = useCallback(async (email, password) => {
     setLoading(true);
     setError(null);
-    await new Promise(r => setTimeout(r, 400)); // simulate network
+    const fail = (message) => { setError(message); setLoading(false); return { success: false, message }; };
 
+    // 1) Supabase Auth (used when VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY are set)
+    if (isSupabaseConfigured) {
+      const { data, error: authErr } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+      if (authErr) return fail(authErr.message === 'Invalid login credentials' ? 'Invalid email or password.' : authErr.message);
+      const res = await loadProfile(data.user);
+      if (res.error) { await supabase.auth.signOut(); return fail(res.error); }
+      await supabase.from('user').update({ last_login_at: new Date().toISOString() }).eq('user_id', data.user.id);
+      setUser(res.user);
+      auditLogin(res.user);
+      setLoading(false);
+      return { success: true };
+    }
+
+    // 2) Demo mode (no Supabase keys): check the sample users
+    await new Promise(r => setTimeout(r, 300));
     const found = USERS.find(u => u.email.toLowerCase() === email.trim().toLowerCase());
-    if (!found) {
-      setError('User account not found. Please check your email.');
-      setLoading(false);
-      return { success: false, message: 'User account not found' };
-    }
-
-    if (!found.active) {
-      setError('Your account has been locked by Administrator. Contact management.');
-      setLoading(false);
-      return { success: false, message: 'Account is locked' };
-    }
-
-    if (found.password !== password) {
-      setError('Invalid password. Check credentials or use Reset Password.');
-      setLoading(false);
-      return { success: false, message: 'Invalid password' };
-    }
-
-    const sessionUser = { ...found, permissions: PERMISSIONS[found.role] || [] };
+    if (!found) return fail('User account not found. Please check your email.');
+    if (!found.active) return fail('Your account has been locked by Administrator. Contact management.');
+    if (found.password !== password) return fail('Invalid password. Check credentials or use Reset Password.');
+    const sessionUser = { ...found, source: 'demo', permissions: PERMISSIONS[found.role] || [] };
     setUser(sessionUser);
-    AUDIT_LOG.unshift({
-      id: `AL${Date.now()}`,
-      action: 'LOGIN',
-      userId: found.id,
-      detail: `${found.name} (${ROLES[found.role]?.label || found.role}) signed in successfully`,
-      timestamp: new Date().toISOString(),
-    });
+    auditLogin(sessionUser);
     setLoading(false);
     return { success: true };
-  }, []);
+  }, [loadProfile]);
 
   const logout = useCallback(() => {
     if (user) {
@@ -142,10 +199,19 @@ export function AuthProvider({ children }) {
         timestamp: new Date().toISOString(),
       });
     }
+    if (isSupabaseConfigured) supabase.auth.signOut();
     setUser(null);
   }, [user]);
 
   const resetPassword = useCallback(async (email, newPassword) => {
+    // Supabase: send a password-reset e-mail (resetPasswordForEmail)
+    if (isSupabaseConfigured) {
+      const { error: rErr } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+        redirectTo: window.location.origin + window.location.pathname,
+      });
+      if (rErr) return { success: false, message: rErr.message };
+      return { success: true, message: 'A password reset link has been sent to your e-mail.' };
+    }
     setLoading(true);
     await new Promise(r => setTimeout(r, 400));
     const found = USERS.find(u => u.email.toLowerCase() === email.trim().toLowerCase());
@@ -179,7 +245,7 @@ export function AuthProvider({ children }) {
   const roleInfo = user ? ROLES[user.role] : null;
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, resetPassword, can, canDo, loading, error, roleInfo }}>
+    <AuthContext.Provider value={{ user, login, logout, resetPassword, can, canDo, loading, error, roleInfo, authMode: isSupabaseConfigured ? 'supabase' : 'demo' }}>
       {children}
     </AuthContext.Provider>
   );

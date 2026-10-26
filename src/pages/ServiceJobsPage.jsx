@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Plus, Search, CheckCircle, AlertTriangle, Clock, Wrench, User, Calendar } from 'lucide-react';
 import {
-  SERVICE_JOBS, CUSTOMERS, PRODUCTS, USERS, SALES_ORDERS, STOCK_MOVEMENTS,
+  SERVICE_JOBS, CUSTOMERS, PRODUCTS, USERS, SALES_ORDERS, STOCK_MOVEMENTS, RETURNS, newRetId,
   fmt, newJobId, newSmId, getCustomer, getUser, getProduct
 } from '../data/mockData';
 import { useToast } from '../context/ToastContext';
@@ -12,6 +12,7 @@ const STATUS_FLOW = ['pending','assigned','in-progress','completed','cancelled']
 const STATUS_COLOR = { pending:'gray', assigned:'primary', 'in-progress':'warning', completed:'success', cancelled:'danger' };
 const TYPE_ICON = { installation:'🔌', repair:'🔧', maintenance:'🛠️' };
 const PRIORITY_COLOR = { normal:'gray', high:'warning', urgent:'danger' };
+const BILL_COLOR = { unbilled:'gray', invoiced:'warning', paid:'success', warranty:'primary' };
 
 function JobModal({ job, onClose, onSave }) {
   const { canDo } = useAuth();
@@ -110,6 +111,10 @@ function JobDetailModal({ job, onClose, onUpdate }) {
   const [visitNote, setVisitNote] = useState('');
   const [partId, setPartId] = useState('');
   const [partQty, setPartQty] = useState(1);
+  const [assignTo, setAssignTo] = useState(job.assignedTo || '');
+  const [fault, setFault] = useState({ faultFound: job.faultFound || '', repairDone: job.repairDone || '', recommendExchange: !!job.recommendExchange });
+  const [fee, setFee] = useState(job.serviceFee || 0);
+  const technicians = USERS.filter(u => u.role === 'technician');
   const customer = getCustomer(job.customerId);
   const tech = getUser(job.assignedTo);
   const product = getProduct(job.productId);
@@ -122,6 +127,35 @@ function JobDetailModal({ job, onClose, onUpdate }) {
     onUpdate(updated);
     toast.success('Visit recorded');
     setVisitNote('');
+  };
+
+  // Manage service job assignments (admin): assign or re-assign a technician
+  const reassign = () => {
+    onUpdate({ ...job, assignedTo: assignTo || null, status: assignTo && job.status === 'pending' ? 'assigned' : job.status, updatedAt: format(new Date(),'yyyy-MM-dd') });
+    toast.success(assignTo ? `Assigned to ${getUser(assignTo)?.name}` : 'Technician removed');
+  };
+
+  // Record repair / fault details (technician); optional exchange recommendation
+  const saveRepair = () => {
+    const updated = { ...job, ...fault, updatedAt: format(new Date(),'yyyy-MM-dd') };
+    if (fault.recommendExchange && !job.exchangeRequestId) {
+      const ret = {
+        id: newRetId(), type:'exchange', customerId: job.customerId, salesOrderId: job.salesOrderId,
+        productId: job.productId, reason: `Technician recommends exchange (${job.id}): ${fault.faultFound}`,
+        status:'pending', warrantyValid: job.warrantyValid, requestedBy: user?.id, approvedBy:null,
+        refundAmount:0, refundStatus:'none', inspectionResult:null, canRestock:null, serviceJobId: job.id,
+        createdAt: format(new Date(),'yyyy-MM-dd'), resolvedAt:null,
+      };
+      RETURNS.push(ret);
+      updated.exchangeRequestId = ret.id;
+      toast.info(`Exchange request ${ret.id} sent for manager approval`);
+    }
+    onUpdate(updated);
+  };
+
+  // Track service job billing (finance)
+  const saveBilling = (billingStatus) => {
+    onUpdate({ ...job, serviceFee: Number(fee) || 0, billingStatus });
   };
 
   const addPart = () => {
@@ -175,6 +209,41 @@ function JobDetailModal({ job, onClose, onUpdate }) {
               </div>
             </div>
 
+            {/* Assign / re-assign technician (admin) */}
+            {canDo('service.assign') && (
+              <div className="card-elevated" style={{ padding:14 }}>
+                <div style={{ fontSize:12, fontWeight:700, textTransform:'uppercase', letterSpacing:.5, color:'var(--text-muted)', marginBottom:10 }}>Assign Technician</div>
+                <div style={{ display:'flex', gap:8 }}>
+                  <select id="job-assign-select" className="form-select" value={assignTo} onChange={e=>setAssignTo(e.target.value)} style={{ flex:1 }}>
+                    <option value="">Unassigned</option>
+                    {technicians.map(t=><option key={t.id} value={t.id}>{t.avatar} {t.name}</option>)}
+                  </select>
+                  <button id="job-assign-btn" className="btn btn-primary btn-sm" disabled={(assignTo||null) === (job.assignedTo||null)} onClick={reassign}>
+                    {job.assignedTo ? 'Re-assign' : 'Assign'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Billing (finance edits, others see it) */}
+            <div className="card-elevated" style={{ padding:14 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+                <span style={{ fontSize:12, fontWeight:700, textTransform:'uppercase', letterSpacing:.5, color:'var(--text-muted)' }}>Billing</span>
+                <span className={`badge badge-${BILL_COLOR[job.billingStatus] || 'gray'}`}>{job.billingStatus || 'unbilled'}</span>
+              </div>
+              <div style={{ fontSize:13, marginBottom: canDo('service.bill') ? 10 : 0 }}>
+                Service fee: <strong style={{ fontFamily:'var(--font-mono)' }}>{fmt(job.serviceFee || 0)}</strong>
+                {job.warrantyValid && <span style={{ color:'var(--text-muted)' }}> · covered by warranty</span>}
+              </div>
+              {canDo('service.bill') && (
+                <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                  <input id="job-fee-input" type="number" min={0} className="form-input" value={fee} onChange={e=>setFee(e.target.value)} style={{ width:120 }} />
+                  <button className="btn btn-outline btn-sm" onClick={() => saveBilling('invoiced')}>Mark Invoiced</button>
+                  <button className="btn btn-success btn-sm" onClick={() => saveBilling('paid')}>Mark Paid</button>
+                </div>
+              )}
+            </div>
+
             {/* Status update (technician only) */}
             {canDo('service.updateStatus') && (
             <div className="card-elevated" style={{ padding:14 }}>
@@ -211,6 +280,31 @@ function JobDetailModal({ job, onClose, onUpdate }) {
 
           {/* Right: Timeline */}
           <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+            {/* Repair / fault details (technician) */}
+            {(canDo('service.recordRepair') || job.faultFound) && (
+              <div className="card-elevated" style={{ padding:14 }}>
+                <div style={{ fontSize:12, fontWeight:700, textTransform:'uppercase', letterSpacing:.5, color:'var(--text-muted)', marginBottom:10 }}>Repair / Fault Details</div>
+                {canDo('service.recordRepair') ? (
+                  <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                    <textarea id="job-fault" className="form-textarea" rows={2} value={fault.faultFound} onChange={e=>setFault(f=>({...f, faultFound:e.target.value}))} placeholder="Fault found (diagnosis)…" />
+                    <textarea id="job-repair" className="form-textarea" rows={2} value={fault.repairDone} onChange={e=>setFault(f=>({...f, repairDone:e.target.value}))} placeholder="Repair done / parts replaced…" />
+                    <label style={{ display:'flex', alignItems:'center', gap:6, fontSize:13, color:'var(--text-secondary)' }}>
+                      <input id="job-recommend" type="checkbox" checked={fault.recommendExchange} disabled={!!job.exchangeRequestId} onChange={e=>setFault(f=>({...f, recommendExchange:e.target.checked}))} />
+                      Recommend exchange or replacement
+                    </label>
+                    {job.exchangeRequestId && <div style={{ fontSize:12, color:'var(--text-muted)' }}>Exchange request {job.exchangeRequestId} created.</div>}
+                    <button id="job-repair-save" className="btn btn-primary btn-sm" style={{ justifyContent:'center' }} disabled={!fault.faultFound} onClick={saveRepair}>Save Repair Details</button>
+                  </div>
+                ) : (
+                  <div style={{ fontSize:13, display:'flex', flexDirection:'column', gap:4 }}>
+                    <div><span className="text-muted">Fault:</span> {job.faultFound}</div>
+                    {job.repairDone && <div><span className="text-muted">Repair:</span> {job.repairDone}</div>}
+                    {job.recommendExchange && <div className="badge badge-warning" style={{ alignSelf:'flex-start' }}>Exchange recommended</div>}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="card-elevated" style={{ padding:14, flex:1 }}>
               <div style={{ fontSize:12, fontWeight:700, textTransform:'uppercase', letterSpacing:.5, color:'var(--text-muted)', marginBottom:12 }}>Visit Log</div>
               {job.visits?.length === 0 && <div style={{ fontSize:13, color:'var(--text-muted)', marginBottom:12 }}>No visits recorded yet</div>}
@@ -266,7 +360,7 @@ export default function ServiceJobsPage() {
     const today = format(new Date(),'yyyy-MM-dd');
     const newJob = {
       id: newJobId(), ...form,
-      warrantyValid: true, warrantyExpiry: '',
+      warrantyValid: true, warrantyExpiry: '', serviceFee: 0, billingStatus: 'unbilled',
       visits:[], partsUsed:[],
       status: form.assignedTo ? 'assigned' : 'pending',
       createdBy: user?.id, createdAt: today, updatedAt: today, completedAt: null,
@@ -357,6 +451,7 @@ export default function ServiceJobsPage() {
                 {product && <span>📦 {product.name}</span>}
                 <span>👤 {tech ? tech.name : 'Unassigned'}</span>
                 <span>📅 {j.createdAt}</span>
+                {canDo('service.bill') && <span>💰 {fmt(j.serviceFee || 0)} · {j.billingStatus || 'unbilled'}</span>}
                 <span className={`badge badge-${j.warrantyValid?'success':'danger'}`} style={{ fontSize:10 }}>{j.warrantyValid?'Warranty':'No Warranty'}</span>
               </div>
               {j.visits?.length > 0 && (

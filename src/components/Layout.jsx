@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Users, Settings, ShoppingCart, Package, Warehouse,
   Truck, Wrench, CreditCard, BarChart3, ArrowLeftRight, MessageSquare,
   LogOut, ChevronRight, Bell, Search, Menu, X, ShoppingBag, FileText,
-  Receipt, UserCheck, ClipboardList, AlertTriangle, Sun, Moon
+  Receipt, UserCheck, ClipboardList, AlertTriangle, Sun, Moon, ShieldCheck
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
@@ -24,6 +24,7 @@ const NAV_SECTIONS = [
       { icon: FileText,        label: 'Sales Orders',  path: '/sales',       perm: 'sales' },
       { icon: Receipt,         label: 'Invoices',      path: '/invoices',    perm: 'invoices' },
       { icon: Users,           label: 'Customers',     path: '/customers',   perm: 'customers' },
+      { icon: ShieldCheck,     label: 'Warranty Check', path: '/warranty',   perm: 'warranty' },
     ]
   },
   {

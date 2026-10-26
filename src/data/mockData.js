@@ -180,7 +180,7 @@ export let PURCHASE_ORDERS = [
 // ============================================================
 export let SERVICE_JOBS = [
   {
-    id: 'JOB-001', customerId:'C001', productId:'P001', serialNo:'CPU-SN-20240112',
+    id: 'JOB-001', serviceFee:0, billingStatus:'warranty', customerId:'C001', productId:'P001', serialNo:'CPU-SN-20240112',
     salesOrderId:'SO-002', type:'repair', priority:'high',
     description:'Custom PC shutting down randomly – CPU overheating',
     status:'in-progress', assignedTo:'U006', createdBy:'U002',
@@ -195,7 +195,7 @@ export let SERVICE_JOBS = [
     createdAt:d(6), updatedAt:d(3), completedAt: null,
   },
   {
-    id: 'JOB-002', customerId:'C003', productId:'P005', serialNo:'SSD-SN-20240305',
+    id: 'JOB-002', serviceFee:7500, billingStatus:'paid', customerId:'C003', productId:'P005', serialNo:'SSD-SN-20240305',
     salesOrderId:'SO-003', type:'installation', priority:'normal',
     description:'Office PC upgrade and SSD installation at customer site',
     status:'completed', assignedTo:'U006', createdBy:'U002',
@@ -207,7 +207,7 @@ export let SERVICE_JOBS = [
     createdAt:d(8), updatedAt:d(7), completedAt:d(7),
   },
   {
-    id: 'JOB-003', customerId:'C002', productId:'P006', serialNo:'MON-SN-20240418',
+    id: 'JOB-003', serviceFee:4500, billingStatus:'unbilled', customerId:'C002', productId:'P006', serialNo:'MON-SN-20240418',
     salesOrderId:'SO-001', type:'maintenance', priority:'normal',
     description:'Annual maintenance – monitor flickering, check cable and panel',
     status:'pending', assignedTo:null, createdBy:'U002',
@@ -216,7 +216,7 @@ export let SERVICE_JOBS = [
     createdAt:d(2), updatedAt:d(2), completedAt: null,
   },
   {
-    id: 'JOB-004', customerId:'C005', productId:'P007', serialNo:'GPU-SN-20241005',
+    id: 'JOB-004', serviceFee:0, billingStatus:'warranty', customerId:'C005', productId:'P007', serialNo:'GPU-SN-20241005',
     salesOrderId:'SO-004', type:'repair', priority:'urgent',
     description:'Graphics card shows artifacts – customer requesting exchange',
     status:'pending', assignedTo:'U006', createdBy:'U002',
@@ -307,6 +307,20 @@ export let REPORT_SCHEDULES = [
 ];
 
 // ============================================================
+// SUPPLIER QUOTATIONS (quotation table)
+// ============================================================
+export let QUOTATIONS = [
+  { id:'QT-001', supplierId:'SUP001', requestDate:d(30), validUntil:d(10), quotedTotal:930000, status:'accepted', note:'RTX 4060 Ti / 4070 Super batch' },
+  { id:'QT-002', supplierId:'SUP004', requestDate:d(6),  validUntil:fd(24), quotedTotal:110000, status:'received', note:'Cooler fans and keyboards' },
+  { id:'QT-003', supplierId:'SUP003', requestDate:d(2),  validUntil:fd(28), quotedTotal:0,      status:'requested', note:'Kingston DDR5 RAM restock' },
+];
+
+// ============================================================
+// RECONCILIATION records (who reconciled which order)
+// ============================================================
+export let RECONCILIATIONS = [];
+
+// ============================================================
 // Derived / helper functions (simulate DB queries)
 // ============================================================
 export const getCustomer  = (id) => CUSTOMERS.find(c => c.id === id);
@@ -347,3 +361,37 @@ export const newRetId   = () => `RET-${String(RETURNS.length + 1).padStart(3,'0'
 export const newCmpId   = () => `CMP-${String(COMPLAINTS.length + 1).padStart(3,'0')}`;
 export const newPayId   = () => `PAY-${String(PAYMENTS.length + 1).padStart(3,'0')}`;
 export const newSmId    = () => `SM${String(STOCK_MOVEMENTS.length + 1).padStart(3,'0')}`;
+export const newQuoteId = () => `QT-${String(QUOTATIONS.length + 1).padStart(3,'0')}`;
+
+// Warranty check (warranty_record): product warranty months from the sale date
+export const getWarrantyStatus = (productId, salesOrderId) => {
+  const product = getProduct(productId);
+  const order = getSalesOrder(salesOrderId);
+  if (!product || !order) return { known:false, valid:false, message:'Select the sales order and product to check the warranty.' };
+  const sold = order.items?.some(i => i.productId === productId);
+  if (!sold) return { known:true, valid:false, message:`${product.name} is not on invoice ${order.invoiceNo}.` };
+  const expiry = addDays(new Date(order.date), Math.round(product.warranty * 30.44));
+  const expiryText = format(expiry, 'yyyy-MM-dd');
+  const valid = expiry >= new Date();
+  return { known:true, valid, product, order, months: product.warranty, saleDate: order.date, expiry: expiryText,
+    message: valid ? `Warranty valid until ${expiryText}` : `Warranty expired on ${expiryText}` };
+};
+
+// All financial transactions (transaction table view): customer payments, supplier payments, refunds
+export const getAllTransactions = () => {
+  const rows = [];
+  PAYMENTS.forEach(p => rows.push({
+    id: p.id, date: p.date, kind: p.note?.startsWith('Refund') ? 'Refund' : 'Customer payment',
+    party: getCustomer(p.customerId)?.name || p.customerId, ref: p.salesOrderId, method: p.method,
+    amount: p.note?.startsWith('Refund') ? -p.amount : p.amount,
+  }));
+  SUPPLIER_PAYMENTS.filter(sp => sp.date).forEach(sp => rows.push({
+    id: sp.id, date: sp.date, kind: 'Supplier payment', party: getSupplier(sp.supplierId)?.name || sp.supplierId,
+    ref: sp.purchaseOrderId, method: sp.method, amount: -sp.amount,
+  }));
+  SERVICE_JOBS.filter(j => j.billingStatus === 'paid' && j.serviceFee > 0).forEach(j => rows.push({
+    id: `SVC-${j.id}`, date: j.completedAt || j.updatedAt, kind: 'Service fee', party: getCustomer(j.customerId)?.name || j.customerId,
+    ref: j.id, method: 'cash', amount: j.serviceFee,
+  }));
+  return rows.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+};

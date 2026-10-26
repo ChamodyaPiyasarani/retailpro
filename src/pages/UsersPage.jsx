@@ -2,7 +2,18 @@ import { useState } from 'react';
 import { USERS, ROLES, AUDIT_LOG } from '../data/mockData';
 import { Plus, Shield, Lock, Unlock, Search, Edit2, Trash2, KeyRound, UserPlus } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
+import { PERMISSIONS } from '../context/AuthContext';
 import { format } from 'date-fns';
+
+// Pages that can be given to a role (permission table)
+const PAGE_PERMISSIONS = [
+  ['dashboard', 'Dashboard'], ['pos', 'Point of Sale'], ['sales', 'Sales Orders'], ['invoices', 'Invoices'],
+  ['customers', 'Customers'], ['products', 'Products'], ['stock', 'Stock'], ['stock-movements', 'Stock Movements'],
+  ['warranty', 'Warranty Check'], ['suppliers', 'Suppliers'], ['purchase-orders', 'Purchase Orders'],
+  ['service-jobs', 'Service Jobs'], ['service-history', 'Service History'], ['returns', 'Returns & Exchanges'],
+  ['complaints', 'Complaints'], ['payments', 'Payments'], ['payables', 'Payables'], ['reports', 'Reports'],
+  ['users', 'Users & Roles'], ['settings', 'Settings'],
+];
 
 function UserModal({ user, onClose, onSave }) {
   const [form, setForm] = useState(user || {
@@ -119,6 +130,22 @@ export default function UsersPage() {
   const [q, setQ] = useState('');
   const [activeTab, setActiveTab] = useState('users');
   const [modal, setModal] = useState(null); // null | 'new' | user object
+  const [permDraft, setPermDraft] = useState(() =>
+    Object.fromEntries(Object.keys(ROLES).map(k => [k, [...(PERMISSIONS[k] || [])]])));
+
+  const togglePerm = (role, perm) => setPermDraft(d => ({
+    ...d, [role]: d[role].includes(perm) ? d[role].filter(p => p !== perm) : [...d[role], perm],
+  }));
+
+  const savePerms = (role) => {
+    PERMISSIONS[role].splice(0, PERMISSIONS[role].length, ...permDraft[role]);
+    AUDIT_LOG.unshift({
+      id: `AL${Date.now()}`, action: 'PERMISSIONS_UPDATED', userId: 'U001',
+      detail: `Permissions for ${ROLES[role]?.label || role} updated (${permDraft[role].length} pages)`,
+      timestamp: new Date().toISOString(),
+    });
+    toast.success(`Permissions saved for ${ROLES[role]?.label || role}`);
+  };
 
   const filtered = users.filter(u =>
     u.name.toLowerCase().includes(q.toLowerCase()) ||
@@ -337,43 +364,50 @@ export default function UsersPage() {
       )}
 
       {activeTab === 'roles' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16 }}>
-          {Object.entries(ROLES).map(([key, role]) => {
-            const roleUsers = USERS.filter(u => u.role === key);
-            const PERMISSIONS_MAP = {
-              admin: ['Dashboard', 'Users & Security', 'Settings', 'Consolidated Reports', 'Service Job Assignments', 'Refund Approvals', 'Warranty Policy', 'Complaint Escalations', 'All POS & Sales', 'All Inventory & Stock', 'Purchasing & Suppliers', 'Finance & Cash Flow'],
-              sales: ['POS Checkout', 'Sales Orders', 'Invoices', 'Customers', 'Warranty Verification', 'Installation Requests', 'Process Returns & Refunds', 'Log Complaints', 'Sales Reports'],
-              storekeeper: ['Real-time Stock Levels', 'Product Information', 'Categories', 'Stock In (Receiving)', 'Stock Out (Adjustments)', 'Batch & Serial Numbers', 'Stock Consistency Verification', 'Service Spare Parts Issuance', 'Return Inspections', 'Stock Reports'],
-              purchase: ['Supplier Directory', 'Purchase Orders', 'Select Supplier & Quotes', 'Track PO Status', 'Stock Receiving with Auto-Increment', 'Notify Finance Payable', 'Urgent Reorder for Exchanged Products'],
-              finance: ['Customer Payments', 'Supplier Payables', 'Outstanding Invoices Tracking', 'Payment Reminders', 'Approve Credit Limits', 'Process Approved Refunds', 'Reconcile Sales & Purchases', 'Financial Reports'],
-              technician: ['Assigned Service Jobs', 'Installation Completion', 'Maintenance Visit Logs', 'Repair & Fault Logging', 'Request Store Spare Parts', 'Exchange Recommendations', 'Service Visit History'],
-            };
-            return (
-              <div key={key} className="card-elevated" style={{ padding: 20 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: 15 }}>{role.label}</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{roleUsers.length} staff member{roleUsers.length !== 1 ? 's' : ''}</div>
+        <div>
+          <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 14px' }}>
+            Tick the pages each role may open, then press <strong>Save permissions</strong>. Staff get the new permissions the next time they sign in.
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16 }}>
+            {Object.entries(ROLES).map(([key, role]) => {
+              const roleUsers = USERS.filter(u => u.role === key);
+              const current = permDraft[key] || [];
+              const changed = current.slice().sort().join() !== (PERMISSIONS[key] || []).slice().sort().join();
+              return (
+                <div key={key} className="card-elevated" style={{ padding: 20 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 15 }}>{role.label}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                        {roleUsers.length} staff member{roleUsers.length !== 1 ? 's' : ''} · {roleUsers.map(u => u.avatar).join(' ')}
+                      </div>
+                    </div>
+                    <span className={`badge badge-${role.color}`}>{key}</span>
                   </div>
-                  <span className={`badge badge-${role.color}`}>{key}</span>
-                </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
-                  {(PERMISSIONS_MAP[key] || []).map(p => (
-                    <span key={p} className="badge badge-gray" style={{ fontSize: 10 }}>{p}</span>
-                  ))}
-                </div>
-                <div className="divider" style={{ margin: '12px 0' }} />
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Assigned Staff:</span>
-                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                    {roleUsers.map(u => (
-                      <span key={u.id} style={{ fontSize: 18 }} title={`${u.name} (${u.email})`}>{u.avatar}</span>
-                    ))}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px', marginBottom: 12 }}>
+                    {PAGE_PERMISSIONS.map(([perm, label]) => {
+                      const locked = key === 'admin' && (perm === 'users' || perm === 'dashboard');
+                      return (
+                        <label key={perm} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--text-secondary)', cursor: locked ? 'not-allowed' : 'pointer' }}>
+                          <input
+                            id={`perm-${key}-${perm}`}
+                            type="checkbox"
+                            checked={current.includes(perm)}
+                            disabled={locked}
+                            onChange={() => togglePerm(key, perm)}
+                          />
+                          {label}
+                        </label>
+                      );
+                    })}
                   </div>
+                  <button className="btn btn-primary btn-sm" disabled={!changed} onClick={() => savePerms(key)}>
+                    Save permissions
+                  </button>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       )}
 

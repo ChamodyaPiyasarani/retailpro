@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Plus, Search, CheckCircle, XCircle, AlertTriangle, RefreshCw, ArrowUpRight, PackageCheck, AlertOctagon } from 'lucide-react';
 import {
   RETURNS, COMPLAINTS, CUSTOMERS, PRODUCTS, SALES_ORDERS, PAYMENTS, STOCK_MOVEMENTS,
-  fmt, newRetId, newCmpId, newPayId, newSmId, getCustomer, getProduct, getSalesOrder
+  fmt, newRetId, newCmpId, newPayId, newSmId, getCustomer, getProduct, getSalesOrder, getWarrantyStatus
 } from '../data/mockData';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
@@ -12,6 +12,11 @@ function ReturnModal({ onClose, onSave }) {
   const [form, setForm] = useState({ type:'refund', customerId:'', salesOrderId:'', productId:'', reason:'' });
   const set = (k,v) => setForm(f=>({...f,[k]:v}));
   const orders = form.customerId ? SALES_ORDERS.filter(o=>o.customerId===form.customerId) : [];
+  const order = SALES_ORDERS.find(o => o.id === form.salesOrderId);
+  const orderProducts = order ? PRODUCTS.filter(p => order.items.some(i => i.productId === p.id)) : PRODUCTS;
+  // Verify warranty status (warranty_record) before the request can be saved
+  const warranty = getWarrantyStatus(form.productId, form.salesOrderId);
+  const blocked = form.type === 'exchange' && warranty.known && !warranty.valid;
   return (
     <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&onClose()}>
       <div className="modal">
@@ -39,7 +44,7 @@ function ReturnModal({ onClose, onSave }) {
           <div className="form-row-2">
             <div className="form-group">
               <label className="form-label">Sales Order</label>
-              <select className="form-select" value={form.salesOrderId} onChange={e=>set('salesOrderId',e.target.value)}>
+              <select className="form-select" value={form.salesOrderId} onChange={e=>{ set('salesOrderId',e.target.value); set('productId',''); }}>
                 <option value="">Select order…</option>
                 {orders.map(o=><option key={o.id} value={o.id}>{o.invoiceNo}</option>)}
               </select>
@@ -48,9 +53,13 @@ function ReturnModal({ onClose, onSave }) {
               <label className="form-label">Product</label>
               <select className="form-select" value={form.productId} onChange={e=>set('productId',e.target.value)}>
                 <option value="">Select product…</option>
-                {PRODUCTS.map(p=><option key={p.id} value={p.id}>{p.emoji} {p.name}</option>)}
+                {orderProducts.map(p=><option key={p.id} value={p.id}>{p.emoji} {p.name}</option>)}
               </select>
             </div>
+          </div>
+          <div id="return-warranty-status" className={`alert alert-${!warranty.known ? 'info' : warranty.valid ? 'success' : 'danger'}`} style={{ fontSize: 13 }}>
+            🛡️ {warranty.message}
+            {blocked && ' — an exchange needs a valid warranty.'}
           </div>
           <div className="form-group">
             <label className="form-label">Reason *</label>
@@ -59,7 +68,7 @@ function ReturnModal({ onClose, onSave }) {
         </div>
         <div className="modal-footer">
           <button className="btn btn-outline" onClick={onClose}>Cancel</button>
-          <button className="btn btn-warning" disabled={!form.customerId||!form.reason} onClick={()=>onSave(form)}>
+          <button className="btn btn-warning" disabled={!form.customerId||!form.salesOrderId||!form.productId||!form.reason||blocked} onClick={()=>onSave({ ...form, warrantyValid: warranty.valid })}>
             Submit Request
           </button>
         </div>
@@ -127,7 +136,7 @@ export default function ReturnsPage() {
 
   const handleReturnSave = (form) => {
     const ret = {
-      id: newRetId(), ...form, status:'pending', warrantyValid:true,
+      id: newRetId(), status:'pending', ...form,
       requestedBy: user?.id, approvedBy:null, refundAmount:0, refundStatus:'none',
       inspectionResult:null, canRestock:null,
       createdAt: format(new Date(),'yyyy-MM-dd'), resolvedAt:null,
