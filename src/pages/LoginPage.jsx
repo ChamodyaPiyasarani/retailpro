@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, LogIn, KeyRound } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { USERS, ROLES } from '../data/mockData';
 
 function ResetPasswordModal({ onClose, onReset }) {
   const [email, setEmail] = useState('');
@@ -105,6 +106,12 @@ export default function LoginPage() {
   const [showPw, setShowPw] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
 
+  // Demo accounts: click one to fill in its email and password
+  const fillUser = (u) => {
+    setEmail(u.email);
+    setPassword(u.password);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     const result = await login(email, password);
@@ -179,6 +186,27 @@ export default function LoginPage() {
         <button type="button" className="login-simple-link" onClick={() => setShowResetModal(true)}>
           Forgot password?
         </button>
+
+        <div className="login-demo">
+          <div className="login-demo-title">Demo accounts — click to fill in</div>
+          <div className="login-demo-list">
+            {USERS.filter(u => u.active).map(u => (
+              <button
+                key={u.id}
+                type="button"
+                className={`login-demo-user ${email === u.email ? 'active' : ''}`}
+                onClick={() => fillUser(u)}
+                title={`${u.email} / ${u.password}`}
+              >
+                <span className="login-demo-avatar">{u.avatar}</span>
+                <span className="login-demo-text">
+                  <span className="login-demo-role">{ROLES[u.role]?.label || u.role}</span>
+                  <span className="login-demo-email">{u.email}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
       </form>
 
       {showResetModal && (

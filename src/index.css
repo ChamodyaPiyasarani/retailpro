@@ -1258,7 +1258,7 @@ body {
 }
 .login-simple-card {
   width: 100%;
-  max-width: 380px;
+  max-width: 440px;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -1279,3 +1279,18 @@ body {
   background: none; border: none; padding: 0; cursor: pointer;
   font-size: 13px; font-weight: 600; color: var(--primary-400); align-self: center;
 }
+
+.login-demo { border-top: 1px solid var(--border-subtle); padding-top: 14px; }
+.login-demo-title { font-size: 12px; font-weight: 700; color: var(--text-muted); text-align: center; margin-bottom: 10px; }
+.login-demo-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.login-demo-user {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px; text-align: left; min-width: 0;
+  background: var(--bg-overlay); border: 1px solid var(--border-subtle); border-radius: 8px; cursor: pointer;
+}
+.login-demo-user:hover { border-color: var(--primary-400); }
+.login-demo-user.active { border-color: var(--primary-500); box-shadow: 0 0 0 2px rgba(59,130,246,0.25); }
+.login-demo-avatar { font-size: 18px; line-height: 1; }
+.login-demo-text { display: flex; flex-direction: column; min-width: 0; }
+.login-demo-role { font-size: 12px; font-weight: 700; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.login-demo-email { font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 420px) { .login-demo-list { grid-template-columns: 1fr; } }
