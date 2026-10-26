@@ -12,9 +12,6 @@ RetailPro is an enterprise-grade internal web application designed for a modern 
 
 ### Step 1: Open Terminal in Project Directory
 Ensure your terminal or PowerShell prompt is in the `WebApp` root folder:
-```bash
-cd "c:\Users\user\OneDrive - National Institute of Business Management\DIPLOMA FINAL NEW ONE\WebApp"
-```
 
 ### Step 2: Install Dependencies (if not already installed)
 ```bash
