@@ -30,7 +30,6 @@ const NAV_SECTIONS = [
   {
     title: 'Inventory',
     items: [
-      { icon: Package,         label: 'Products',      path: '/products',    perm: 'products' },
       { icon: Warehouse,       label: 'Stock',         path: '/stock',       perm: 'stock' },
       { icon: ArrowLeftRight,  label: 'Movements',     path: '/stock-movements', perm: 'stock-movements' },
     ]
@@ -90,6 +89,7 @@ export default function Layout({ children }) {
   const navigate = useNavigate();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
 
   const lowStock = getLowStockProducts().length;
   const overduePos = getOverduePOs().length;
@@ -101,6 +101,14 @@ export default function Layout({ children }) {
     if (path === '/invoices' && outstanding > 0) return outstanding;
     return null;
   };
+
+  // Notifications the signed-in role can act on
+  const notifications = [
+    can('stock') && lowStock > 0 && { icon: '📦', text: `${lowStock} product(s) at or below minimum stock`, path: '/stock', state: { filter: 'low' } },
+    can('purchase-orders') && overduePos > 0 && { icon: '🚚', text: `${overduePos} purchase order(s) overdue`, path: '/purchase-orders' },
+    can('payments') && outstanding > 0 && { icon: '⏰', text: `${outstanding} invoice(s) not fully paid`, path: '/payments', state: { tab: 'outstanding' } },
+    can('invoices') && !can('payments') && outstanding > 0 && { icon: '🧾', text: `${outstanding} invoice(s) not fully paid`, path: '/invoices' },
+  ].filter(Boolean);
 
   const currentTitle = () => {
     const all = NAV_SECTIONS.flatMap(s => s.items);
@@ -205,10 +213,17 @@ export default function Layout({ children }) {
 
           {/* Alerts summary */}
           {lowStock > 0 && (
-            <div style={{ display:'flex', alignItems:'center', gap:6, color:'var(--warning-400)', fontSize:13 }}>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              disabled={!can('stock')}
+              onClick={() => navigate('/stock', { state: { filter: 'low' } })}
+              title={can('stock') ? 'Show low-stock products' : undefined}
+              style={{ display:'flex', alignItems:'center', gap:6, color:'var(--warning-400)', fontSize:13 }}
+            >
               <AlertTriangle size={15} />
               <span>{lowStock} low stock</span>
-            </div>
+            </button>
           )}
 
           <div className="topbar-actions">
@@ -223,10 +238,13 @@ export default function Layout({ children }) {
               {theme === 'dark' ? <Sun size={18} color="var(--warning-400)" /> : <Moon size={18} color="var(--primary-600)" />}
             </button>
 
+            <div style={{ position:'relative' }}>
             <button
               className="btn btn-ghost btn-icon"
               style={{ position:'relative' }}
               id="topbar-notifications-btn"
+              onClick={() => setNotifOpen(o => !o)}
+              title="Notifications"
             >
               <Bell size={18} />
               {(lowStock + overduePos) > 0 && (
@@ -236,6 +254,18 @@ export default function Layout({ children }) {
                 }} />
               )}
             </button>
+            {notifOpen && (
+              <div className="notif-panel" onMouseLeave={() => setNotifOpen(false)}>
+                <div className="notif-title">Notifications</div>
+                {notifications.length === 0 && <div className="notif-empty">You're all caught up.</div>}
+                {notifications.map(n => (
+                  <button key={n.text} type="button" className="notif-item" onClick={() => { setNotifOpen(false); navigate(n.path, { state: n.state }); }}>
+                    <span>{n.icon}</span><span>{n.text}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            </div>
             <div style={{ width:1, height:24, background:'var(--border-subtle)' }} />
             <div style={{ display:'flex', alignItems:'center', gap:8, cursor:'default' }}>
               <span style={{ fontSize:20 }}>{user?.avatar}</span>

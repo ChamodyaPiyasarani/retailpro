@@ -49,7 +49,7 @@ function ResetPasswordModal({ onClose, onReset, emailOnly }) {
               <input
                 type="email"
                 className="form-input"
-                placeholder="e.g. sales@retailpro.lk"
+                placeholder="e.g. cashier@gmail.com"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 required
@@ -145,7 +145,7 @@ export default function LoginPage() {
             id="login-email"
             type="email"
             className="form-input"
-            placeholder="you@retailpro.lk"
+            placeholder="you@gmail.com"
             value={email}
             onChange={e => setEmail(e.target.value)}
             required

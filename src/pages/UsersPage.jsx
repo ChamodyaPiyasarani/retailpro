@@ -56,7 +56,7 @@ function UserModal({ user, onClose, onSave }) {
                 className="form-input"
                 value={form.email}
                 onChange={e => set('email', e.target.value)}
-                placeholder="name@retailpro.lk"
+                placeholder="name@gmail.com"
                 required
               />
             </div>
@@ -126,7 +126,7 @@ function UserModal({ user, onClose, onSave }) {
 
 export default function UsersPage() {
   const toast = useToast();
-  const [users, setUsers] = useState(USERS);
+  const [users, setUsers] = useState(() => [...USERS]);
   const [q, setQ] = useState('');
   const [activeTab, setActiveTab] = useState('users');
   const [modal, setModal] = useState(null); // null | 'new' | user object

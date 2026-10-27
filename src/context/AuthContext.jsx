@@ -60,6 +60,7 @@ export const PERMISSIONS = {
     'dashboard',
     'payments', 'payables', // Manage customer & supplier payments, payment history, refund payments, reconcile sales/purchases
     'invoices', // Track outstanding invoices, send payment reminder, flag overdue
+    'returns', // Process approved refund payment
     'customers', // Approve credit limits for customers
     'sales', // View financial order transactions & dues
     'service-jobs', // Track service job billing

@@ -65,7 +65,7 @@ function StarRating({ rating }) {
 export default function SuppliersPage() {
   const toast = useToast();
   const { canDo } = useAuth();
-  const [suppliers, setSuppliers] = useState(SUPPLIERS);
+  const [suppliers, setSuppliers] = useState(() => [...SUPPLIERS]);
   const [q, setQ] = useState('');
   const [modal, setModal] = useState(null);
 

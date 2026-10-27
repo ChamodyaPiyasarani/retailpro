@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Plus, Search, CheckCircle, XCircle, AlertTriangle, RefreshCw, ArrowUpRight, PackageCheck, AlertOctagon } from 'lucide-react';
 import {
   RETURNS, COMPLAINTS, CUSTOMERS, PRODUCTS, SALES_ORDERS, PAYMENTS, STOCK_MOVEMENTS,
@@ -128,9 +129,21 @@ function ComplaintModal({ onClose, onSave }) {
 export default function ReturnsPage() {
   const toast = useToast();
   const { user, canDo } = useAuth();
-  const [returns, setReturns] = useState(RETURNS);
-  const [complaints, setComplaints] = useState(COMPLAINTS);
+  const [returns, setReturns] = useState(() => [...RETURNS]);
+  const [complaints, setComplaints] = useState(() => [...COMPLAINTS]);
   const [activeTab, setActiveTab] = useState('returns');
+  const location = useLocation();
+  const navigate = useNavigate();
+  // Open the right tab for the menu item that brought the user here
+  useEffect(() => {
+    setActiveTab(location.pathname === '/complaints' ? 'complaints' : 'returns');
+  }, [location.pathname]);
+  // Buttons elsewhere can ask this page to open a form / tab / filter; apply it once, then clear it
+  useEffect(() => {
+    if (!location.state) return;
+
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.state]); // eslint-disable-line react-hooks/exhaustive-deps
   const [modal, setModal] = useState(null);
   const [q, setQ] = useState('');
 
@@ -243,7 +256,7 @@ export default function ReturnsPage() {
     <div>
       <div className="page-header">
         <div>
-          <h1 className="page-title">Returns, Exchanges & Complaints</h1>
+          <h1 className="page-title">{activeTab === 'complaints' ? 'Customer Complaints' : 'Returns & Exchanges'}</h1>
           <p className="page-subtitle">{returns.filter(r=>r.status==='pending').length} pending returns · {complaints.filter(c=>c.status==='open').length} open complaints</p>
         </div>
         <div className="page-header-actions">

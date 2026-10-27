@@ -16,12 +16,12 @@ const fd = (n) => format(addDays(new Date(), n), 'yyyy-MM-dd');
 // USERS / AUTH
 // ============================================================
 export const USERS = [
-  { id: 'U001', name: 'Amara Silva',   email: 'admin@retailpro.lk',    password: 'admin123',    role: 'admin',    avatar: '👩‍💼', active: true },
-  { id: 'U002', name: 'Kamal Perera',  email: 'sales@retailpro.lk',    password: 'sales123',    role: 'sales',    avatar: '🧑‍💼', active: true },
-  { id: 'U003', name: 'Nimal Fernando',email: 'store@retailpro.lk',    password: 'store123',    role: 'storekeeper', avatar: '🧑‍🏭', active: true },
-  { id: 'U004', name: 'Dilshan Ranjith',email:'purchase@retailpro.lk', password: 'purchase123', role: 'purchase', avatar: '🧑‍💻', active: true },
-  { id: 'U005', name: 'Sanduni Perera', email:'finance@retailpro.lk',  password: 'finance123',  role: 'finance',  avatar: '👩‍💻', active: true },
-  { id: 'U006', name: 'Ruwan Jayasena', email:'tech@retailpro.lk',     password: 'tech123',     role: 'technician', avatar: '🧑‍🔧', active: true },
+  { id: 'U001', name: 'Amara Silva',   email: 'admin@gmail.com',    password: 'admin123',    role: 'admin',    avatar: '👩‍💼', active: true },
+  { id: 'U002', name: 'Kamal Perera',  email: 'cashier@gmail.com',    password: 'sales123',    role: 'sales',    avatar: '🧑‍💼', active: true },
+  { id: 'U003', name: 'Nimal Fernando',email: 'storekeeper@gmail.com',    password: 'store123',    role: 'storekeeper', avatar: '🧑‍🏭', active: true },
+  { id: 'U004', name: 'Dilshan Ranjith',email:'purchase@gmail.com', password: 'purchase123', role: 'purchase', avatar: '🧑‍💻', active: true },
+  { id: 'U005', name: 'Sanduni Perera', email:'finance@gmail.com',  password: 'finance123',  role: 'finance',  avatar: '👩‍💻', active: true },
+  { id: 'U006', name: 'Ruwan Jayasena', email:'tech@gmail.com',     password: 'tech123',     role: 'technician', avatar: '🧑‍🔧', active: true },
 ];
 
 export const ROLES = {
@@ -301,9 +301,9 @@ export let AUDIT_LOG = [
 // REPORT SCHEDULES
 // ============================================================
 export let REPORT_SCHEDULES = [
-  { id:'RS001', type:'sales_summary',    frequency:'daily',   recipients:['admin@retailpro.lk'], active:true,  lastRun:d(1) },
-  { id:'RS002', type:'stock_alert',      frequency:'daily',   recipients:['store@retailpro.lk'],  active:true,  lastRun:d(0) },
-  { id:'RS003', type:'financial_summary',frequency:'monthly', recipients:['finance@retailpro.lk'],active:true,  lastRun:d(15) },
+  { id:'RS001', type:'sales_summary',    frequency:'daily',   recipients:['admin@gmail.com'], active:true,  lastRun:d(1) },
+  { id:'RS002', type:'stock_alert',      frequency:'daily',   recipients:['storekeeper@gmail.com'],  active:true,  lastRun:d(0) },
+  { id:'RS003', type:'financial_summary',frequency:'monthly', recipients:['finance@gmail.com'],active:true,  lastRun:d(15) },
 ];
 
 // ============================================================

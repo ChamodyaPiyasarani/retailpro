@@ -72,7 +72,7 @@ export default function ReportsPage() {
   const REPORT_LABELS = { consolidated: 'Consolidated (all departments)', sales: 'Sales & Revenue', stock: 'Stock & Valuation', service: 'Service & Repairs', finance: 'Financial Statement' };
   const allowedTypes = REPORT_TYPES[user?.role] || ['sales'];
   const [reportType, setReportType] = useState(allowedTypes[0]);
-  const [schedules, setSchedules] = useState(REPORT_SCHEDULES);
+  const [schedules, setSchedules] = useState(() => [...REPORT_SCHEDULES]);
   const [newSchedule, setNewSchedule] = useState({ type: allowedTypes[0], frequency: 'weekly', recipients: user?.email || '' });
 
   // Schedule automated report

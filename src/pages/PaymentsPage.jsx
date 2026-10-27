@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Plus, Search, CreditCard, DollarSign, Clock, CheckCircle, Send, AlertTriangle } from 'lucide-react';
 import {
   PAYMENTS, SUPPLIER_PAYMENTS, SALES_ORDERS, CUSTOMERS, SUPPLIERS, PURCHASE_ORDERS,
@@ -68,10 +69,23 @@ function PaymentModal({ type, onClose, onSave }) {
 export default function PaymentsPage() {
   const toast = useToast();
   const { user, canDo } = useAuth();
-  const [payments, setPayments] = useState(PAYMENTS);
-  const [supplierPayments, setSupplierPayments] = useState(SUPPLIER_PAYMENTS);
+  const [payments, setPayments] = useState(() => [...PAYMENTS]);
+  const [supplierPayments, setSupplierPayments] = useState(() => [...SUPPLIER_PAYMENTS]);
   const [activeTab, setActiveTab] = useState('customer');
   const [modal, setModal] = useState(false);
+  const location = useLocation();
+  const navigate = useNavigate();
+  // Open the right tab for the menu item that brought the user here
+  useEffect(() => {
+    setActiveTab(location.pathname === '/payables' ? 'payables' : 'customer');
+  }, [location.pathname]);
+  // Buttons elsewhere can ask this page to open a form / tab / filter; apply it once, then clear it
+  useEffect(() => {
+    if (!location.state) return;
+    if (location.state?.tab) setActiveTab(location.state.tab);
+    if (location.state?.open === 'new' && canDo('payment.record')) setModal(true);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.state]); // eslint-disable-line react-hooks/exhaustive-deps
   const [q, setQ] = useState('');
   const [, bump] = useState(0);
 
@@ -117,7 +131,7 @@ export default function PaymentsPage() {
     <div>
       <div className="page-header">
         <div>
-          <h1 className="page-title">Payments & Finance</h1>
+          <h1 className="page-title">{activeTab === 'payables' ? 'Supplier Payables' : 'Payments & Finance'}</h1>
           <p className="page-subtitle">Track receipts, outstanding balances, and payables</p>
         </div>
         <div className="page-header-actions">

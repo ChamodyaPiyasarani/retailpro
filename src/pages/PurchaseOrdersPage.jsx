@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Search, Plus, CheckCircle, AlertTriangle, Package, Edit2, FileText } from 'lucide-react';
 import { SUPPLIERS, PURCHASE_ORDERS, PRODUCTS, STOCK_MOVEMENTS, QUOTATIONS, RETURNS, fmt, newPoId, newSmId, newQuoteId, getSupplier } from '../data/mockData';
 import { useToast } from '../context/ToastContext';
@@ -178,10 +179,19 @@ function ReceiveModal({ po, onClose, onSave }) {
 export default function PurchaseOrdersPage() {
   const toast = useToast();
   const { user, canDo } = useAuth();
-  const [orders, setOrders] = useState(PURCHASE_ORDERS);
+  const [orders, setOrders] = useState(() => [...PURCHASE_ORDERS]);
   const [q, setQ] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [modal, setModal] = useState(null);
+  const location = useLocation();
+  const navigate = useNavigate();
+  // Open the right tab for the menu item that brought the user here
+  // Buttons elsewhere can ask this page to open a form / tab / filter; apply it once, then clear it
+  useEffect(() => {
+    if (!location.state) return;
+    if (location.state?.open === 'new' && canDo('po.create')) setModal('new');
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.state]); // eslint-disable-line react-hooks/exhaustive-deps
   const [receiving, setReceiving] = useState(null);
   const [tab, setTab] = useState('orders');
 

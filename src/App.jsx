@@ -98,14 +98,7 @@ export default function App() {
             />
 
             {/* Inventory */}
-            <Route
-              path="/products"
-              element={
-                <ProtectedRoute perm="products">
-                  <StockPage />
-                </ProtectedRoute>
-              }
-            />
+            <Route path="/products" element={<Navigate to="/stock" replace />} />
             <Route
               path="/stock"
               element={

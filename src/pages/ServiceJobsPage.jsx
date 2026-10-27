@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Plus, Search, CheckCircle, AlertTriangle, Clock, Wrench, User, Calendar } from 'lucide-react';
 import {
   SERVICE_JOBS, CUSTOMERS, PRODUCTS, USERS, SALES_ORDERS, STOCK_MOVEMENTS, RETURNS, newRetId,
@@ -339,11 +340,20 @@ function JobDetailModal({ job, onClose, onUpdate }) {
 export default function ServiceJobsPage() {
   const toast = useToast();
   const { user, canDo } = useAuth();
-  const [jobs, setJobs] = useState(SERVICE_JOBS);
+  const [jobs, setJobs] = useState(() => [...SERVICE_JOBS]);
   const [q, setQ] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
   const [modal, setModal] = useState(null);
+  const location = useLocation();
+  const navigate = useNavigate();
+  // Open the right tab for the menu item that brought the user here
+  // Buttons elsewhere can ask this page to open a form / tab / filter; apply it once, then clear it
+  useEffect(() => {
+    if (!location.state) return;
+    if (location.state?.open === 'new' && canDo('service.create')) setModal('new');
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.state]); // eslint-disable-line react-hooks/exhaustive-deps
   const [detail, setDetail] = useState(null);
 
   // Technicians see only the jobs assigned to them ("View assigned service jobs")

@@ -98,7 +98,7 @@ export default function DashboardPage() {
       {(lowStock.length > 0 || overduePOs.length > 0 || openComplaints.length > 0) && (
         <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:20 }}>
           {lowStock.length > 0 && (
-            <div className="alert alert-warning" style={{ cursor:'pointer' }} onClick={() => navigate('/stock')}>
+            <div className="alert alert-warning" style={{ cursor:'pointer' }} onClick={() => navigate('/stock', { state: { filter: 'low' } })}>
               <AlertTriangle size={16} />
               <span><strong>{lowStock.length} products</strong> are at or below minimum stock level. <span style={{ textDecoration:'underline' }}>View →</span></span>
             </div>
@@ -225,9 +225,9 @@ export default function DashboardPage() {
           <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
             {[
               { label:'New Sale', path:'/pos', act:'sale.create', color:'var(--primary-500)', icon:'🛒' },
-              { label:'New Purchase Order', path:'/purchase-orders', act:'po.create', color:'var(--warning-500)', icon:'📦' },
-              { label:'New Service Job', path:'/service-jobs', act:'service.create', color:'var(--accent-500)', icon:'🔧' },
-              { label:'Record Payment', path:'/payments', act:'payment.record', color:'var(--success-500)', icon:'💳' },
+              { label:'New Purchase Order', state:{ open:'new' }, path:'/purchase-orders', act:'po.create', color:'var(--warning-500)', icon:'📦' },
+              { label:'New Service Job', state:{ open:'new' }, path:'/service-jobs', act:'service.create', color:'var(--accent-500)', icon:'🔧' },
+              { label:'Record Payment', state:{ open:'new' }, path:'/payments', act:'payment.record', color:'var(--success-500)', icon:'💳' },
               { label:'Stock Adjustment', path:'/stock', act:'stock.adjust', color:'var(--danger-400)', icon:'📊' },
               { label:'My Service Jobs', path:'/service-jobs', act:'service.updateStatus', color:'var(--accent-500)', icon:'🛠️' },
               { label:'View Reports', path:'/reports', perm:'reports', color:'var(--gray-400)', icon:'📈' },
@@ -237,7 +237,7 @@ export default function DashboardPage() {
                 id={`dashboard-quick-${item.path.replace('/','')}`}
                 className="btn btn-outline"
                 style={{ justifyContent:'flex-start', gap:10, fontSize:13 }}
-                onClick={() => navigate(item.path)}
+                onClick={() => navigate(item.path, item.state ? { state: item.state } : undefined)}
               >
                 <span>{item.icon}</span>
                 <span>{item.label}</span>

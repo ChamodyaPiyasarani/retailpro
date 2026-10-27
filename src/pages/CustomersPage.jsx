@@ -55,7 +55,7 @@ function CustomerModal({ customer, onClose, onSave }) {
 export default function CustomersPage() {
   const toast = useToast();
   const { user, canDo } = useAuth();
-  const [customers, setCustomers] = useState(CUSTOMERS);
+  const [customers, setCustomers] = useState(() => [...CUSTOMERS]);
   const [q, setQ] = useState('');
   const [modal, setModal] = useState(null); // null | 'new' | customer obj
   const [detail, setDetail] = useState(null);

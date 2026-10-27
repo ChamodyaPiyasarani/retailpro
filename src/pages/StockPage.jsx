@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Search, Eye, Package, TrendingDown, TrendingUp, AlertTriangle, BarChart2, Edit2, Plus, Trash2, ShieldCheck, BellRing, CheckCircle2 } from 'lucide-react';
 import { PRODUCTS, CATEGORIES, SUPPLIERS, STOCK_MOVEMENTS, getLowStockProducts, fmt, newSmId } from '../data/mockData';
 import { useToast } from '../context/ToastContext';
@@ -230,8 +231,20 @@ export default function StockPage() {
   const [adjusting, setAdjusting] = useState(null);
   const [productModal, setProductModal] = useState(null); // null | 'new' | product obj
   const [activeTab, setActiveTab] = useState('products');
+  const location = useLocation();
+  const navigate = useNavigate();
+  // Open the right tab for the menu item that brought the user here
+  useEffect(() => {
+    setActiveTab(location.pathname === '/stock-movements' ? 'movements' : 'products');
+  }, [location.pathname]);
+  // Buttons elsewhere can ask this page to open a form / tab / filter; apply it once, then clear it
+  useEffect(() => {
+    if (!location.state) return;
+    if (location.state?.filter) setStatusFilter(location.state.filter);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.state]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const [products, setProducts] = useState(PRODUCTS);
+  const [products, setProducts] = useState(() => [...PRODUCTS]);
 
   const filtered = products.filter(p =>
     (catFilter === 'all' || p.category === catFilter) &&
@@ -249,9 +262,11 @@ export default function StockPage() {
   const handleAdjust = ({ qty, type, note, serialBatch }) => {
     const p = adjusting;
     const delta = type === 'in' ? +Math.abs(qty) : type === 'out' ? -Math.abs(qty) : qty;
-    setProducts(ps => ps.map(x => x.id === p.id ? { ...x, stock: x.stock + delta } : x));
+    // change the stock once: build the updated product, then put the same object in the shared data and the page list
     const pidx = PRODUCTS.findIndex(x => x.id === p.id);
-    if (pidx !== -1) PRODUCTS[pidx].stock += delta;
+    const updatedProduct = { ...(pidx !== -1 ? PRODUCTS[pidx] : p), stock: (pidx !== -1 ? PRODUCTS[pidx].stock : p.stock) + delta };
+    if (pidx !== -1) PRODUCTS[pidx] = updatedProduct;
+    setProducts(ps => ps.map(x => x.id === p.id ? updatedProduct : x));
 
     STOCK_MOVEMENTS.push({
       id: newSmId(),
@@ -334,7 +349,7 @@ export default function StockPage() {
     <div>
       <div className="page-header">
         <div>
-          <h1 className="page-title">Stock & Inventory Management</h1>
+          <h1 className="page-title">{activeTab === 'movements' ? 'Stock Movements' : 'Stock & Inventory Management'}</h1>
           <p className="page-subtitle">Real-time inventory levels, serial numbers, and warehouse movements</p>
         </div>
         <div className="page-header-actions" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
