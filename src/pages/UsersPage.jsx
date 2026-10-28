@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { USERS, ROLES, AUDIT_LOG } from '../data/mockData';
 import { Plus, Shield, Lock, Unlock, Search, Edit2, Trash2, KeyRound, UserPlus } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { PERMISSIONS } from '../context/AuthContext';
+import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
+import { createStaffAccount, updateStaffProfile } from '../lib/staffAccounts';
 import { format } from 'date-fns';
 
 // Pages that can be given to a role (permission table)
@@ -15,11 +17,11 @@ const PAGE_PERMISSIONS = [
   ['users', 'Users & Roles'], ['settings', 'Settings'],
 ];
 
-function UserModal({ user, onClose, onSave }) {
+function UserModal({ user, onClose, onSave, saving }) {
   const [form, setForm] = useState(user || {
     name: '',
     email: '',
-    password: 'Password@123',
+    password: '123456',
     role: 'sales',
     avatar: '🧑‍💼',
     active: true
@@ -60,8 +62,9 @@ function UserModal({ user, onClose, onSave }) {
                 required
               />
             </div>
+            {!(user && isSupabaseConfigured) && (
             <div className="form-group">
-              <label className="form-label">Password {user ? '(Leave to keep current)' : '*'}</label>
+              <label className="form-label">Password {user ? '(Leave to keep current)' : '* (min. 6 characters)'}</label>
               <input
                 type="text"
                 className="form-input"
@@ -70,6 +73,7 @@ function UserModal({ user, onClose, onSave }) {
                 placeholder="Set password"
               />
             </div>
+            )}
           </div>
 
           <div className="form-row-2">
@@ -113,10 +117,10 @@ function UserModal({ user, onClose, onSave }) {
           <button className="btn btn-outline" onClick={onClose}>Cancel</button>
           <button
             className="btn btn-primary"
-            disabled={!form.name || !form.email}
+            disabled={saving || !form.name || !form.email || (!user && (form.password || '').length < 6)}
             onClick={() => onSave(form)}
           >
-            {user ? 'Save Changes' : 'Create User'}
+            {saving ? 'Saving…' : user ? 'Save Changes' : 'Create User'}
           </button>
         </div>
       </div>
@@ -130,6 +134,21 @@ export default function UsersPage() {
   const [q, setQ] = useState('');
   const [activeTab, setActiveTab] = useState('users');
   const [modal, setModal] = useState(null); // null | 'new' | user object
+  const [saving, setSaving] = useState(false);
+
+  // Show staff accounts that exist in Supabase but are not in the sample list (e.g. created earlier)
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    supabase.from('user').select('user_id, full_name, email, user_type, is_active, is_locked').then(({ data }) => {
+      const extra = (data || [])
+        .filter(r => r.email && r.is_active !== false && !USERS.some(u => u.email.toLowerCase() === r.email.toLowerCase()))
+        .map((r, i) => ({
+          id: `U${String(USERS.length + i + 1).padStart(3, '0')}`, authId: r.user_id, name: r.full_name || r.email, email: r.email,
+          role: ROLES[r.user_type] ? r.user_type : 'sales', avatar: '👤', active: !r.is_locked, fromSupabase: true,
+        }));
+      if (extra.length) { USERS.push(...extra); setUsers([...USERS]); }
+    });
+  }, []);
   const [permDraft, setPermDraft] = useState(() =>
     Object.fromEntries(Object.keys(ROLES).map(k => [k, [...(PERMISSIONS[k] || [])]])));
 
@@ -158,6 +177,7 @@ export default function UsersPage() {
     if (!u) return;
     const newStatus = !u.active;
     u.active = newStatus;
+    updateStaffProfile(u.email, { is_locked: !newStatus }).then(r => { if (!r.ok) toast.error('Could not save the lock status: ' + r.message); });
     setUsers(us => us.map(x => x.id === userId ? { ...x, active: newStatus } : x));
 
     AUDIT_LOG.unshift({
@@ -171,11 +191,22 @@ export default function UsersPage() {
     toast.info(`User account ${u.name} is now ${newStatus ? 'Active' : 'Locked'}`);
   };
 
-  const handleSaveUser = (form) => {
+  const handleSaveUser = async (form) => {
     if (modal === 'new') {
+      if (USERS.some(u => u.email.toLowerCase() === form.email.trim().toLowerCase())) {
+        toast.error('A user with this e-mail already exists.');
+        return;
+      }
+      // 1) create the Supabase Auth account so the new staff member can sign in straight away
+      setSaving(true);
+      const res = await createStaffAccount(form);
+      setSaving(false);
+      if (!res.ok) { toast.error(res.message); return; }
       const newU = {
         ...form,
-        id: `U00${users.length + 1}`,
+        email: form.email.trim(),
+        id: `U${String(USERS.length + 1).padStart(3, '0')}`,
+        authId: res.authId,
         active: true
       };
       USERS.push(newU);
@@ -189,9 +220,11 @@ export default function UsersPage() {
         timestamp: new Date().toISOString(),
       });
 
-      toast.success(`User ${newU.name} created successfully`);
+      toast.success(`User ${newU.name} created. They can sign in now with ${newU.email} and their password.`);
     } else {
       const updated = { ...modal, ...form };
+      const up = await updateStaffProfile(modal.email, { full_name: updated.name, user_type: updated.role });
+      if (!up.ok) { toast.error('Could not save the changes: ' + up.message); return; }
       setUsers(us => us.map(u => u.id === modal.id ? updated : u));
       const i = USERS.findIndex(u => u.id === modal.id);
       if (i !== -1) USERS[i] = updated;
@@ -215,6 +248,7 @@ export default function UsersPage() {
       return;
     }
     if (confirm(`Are you sure you want to delete user ${u.name}?`)) {
+      updateStaffProfile(u.email, { is_active: false, is_locked: true });
       setUsers(us => us.filter(x => x.id !== u.id));
       const idx = USERS.findIndex(x => x.id === u.id);
       if (idx !== -1) USERS.splice(idx, 1);
@@ -416,6 +450,7 @@ export default function UsersPage() {
           user={modal === 'new' ? null : modal}
           onClose={() => setModal(null)}
           onSave={handleSaveUser}
+          saving={saving}
         />
       )}
     </div>

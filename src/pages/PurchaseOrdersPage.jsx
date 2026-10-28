@@ -179,6 +179,8 @@ function ReceiveModal({ po, onClose, onSave }) {
 export default function PurchaseOrdersPage() {
   const toast = useToast();
   const { user, canDo } = useAuth();
+  // Show the Actions column only to roles that can approve, edit or receive purchase orders
+  const showActions = canDo('po.approve') || canDo('po.edit') || canDo('po.receive');
   const [orders, setOrders] = useState(() => [...PURCHASE_ORDERS]);
   const [q, setQ] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -349,11 +351,11 @@ export default function PurchaseOrdersPage() {
       <div className="table-container">
         <table className="table">
           <thead>
-            <tr><th>PO Number</th><th>Supplier</th><th>Date</th><th>Expected</th><th>Grand Total</th><th>Status</th><th>Payable</th><th>Actions</th></tr>
+            <tr><th>PO Number</th><th>Supplier</th><th>Date</th><th>Expected</th><th>Grand Total</th><th>Status</th><th>Payable</th>{showActions && <th>Actions</th>}</tr>
           </thead>
           <tbody>
             {filtered.length === 0 && (
-              <tr><td colSpan={8}><div className="empty-state"><div className="empty-state-icon">📋</div><div className="empty-state-title">No purchase orders</div></div></td></tr>
+              <tr><td colSpan={showActions ? 8 : 7}><div className="empty-state"><div className="empty-state-icon">📋</div><div className="empty-state-title">No purchase orders</div></div></td></tr>
             )}
             {filtered.map(po => {
               const sup = SUPPLIERS.find(s=>s.id===po.supplierId);
@@ -382,7 +384,7 @@ export default function PurchaseOrdersPage() {
                       {po.payableStatus === 'none' ? 'N/A' : po.payableStatus}
                     </span>
                   </td>
-                  <td>
+                  {showActions && (<td>
                     <div className="table-action-cell">
                       {po.status === 'draft' && canDo('po.approve') && (
                         <button id={`po-approve-${po.id}`} className="btn btn-primary btn-sm" onClick={() => approveOrder(po)}>
@@ -400,7 +402,7 @@ export default function PurchaseOrdersPage() {
                         </button>
                       )}
                     </div>
-                  </td>
+                  </td>)}
                 </tr>
               );
             })}

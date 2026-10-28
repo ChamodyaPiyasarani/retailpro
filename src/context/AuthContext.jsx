@@ -167,7 +167,12 @@ export function AuthProvider({ children }) {
     // 1) Supabase Auth (used when VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY are set)
     if (isSupabaseConfigured) {
       const { data, error: authErr } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-      if (authErr) return fail(authErr.message === 'Invalid login credentials' ? 'Invalid email or password.' : authErr.message);
+      if (authErr) {
+        const msg = authErr.message === 'Invalid login credentials' ? 'Invalid email or password.'
+          : /not confirmed/i.test(authErr.message) ? 'This account is not active yet. Please ask the Administrator.'
+          : authErr.message;
+        return fail(msg);
+      }
       const res = await loadProfile(data.user);
       if (res.error) { await supabase.auth.signOut(); return fail(res.error); }
       await supabase.from('user').update({ last_login_at: new Date().toISOString() }).eq('user_id', data.user.id);

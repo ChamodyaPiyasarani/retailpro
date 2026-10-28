@@ -225,6 +225,8 @@ function AdjustModal({ product, onClose, onSave }) {
 export default function StockPage() {
   const toast = useToast();
   const { user, canDo } = useAuth();
+  // Show the Actions column only to roles that have at least one stock action
+  const showActions = canDo('stock.adjust') || canDo('product.edit') || canDo('product.delete');
   const [q, setQ] = useState('');
   const [catFilter, setCatFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -428,7 +430,7 @@ export default function StockPage() {
                 <th>Status</th>
                 <th>Selling Price</th>
                 <th>Unit Cost</th>
-                <th>Actions</th>
+                {showActions && <th>Actions</th>}
               </tr>
             </thead>
             <tbody>
@@ -484,7 +486,7 @@ export default function StockPage() {
                     <td><span className={`badge badge-${st.cls}`}>{st.label}</span></td>
                     <td><span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600 }}>{fmt(p.price)}</span></td>
                     <td><span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-muted)' }}>{fmt(p.cost)}</span></td>
-                    <td>
+                    {showActions && (<td>
                       <div className="table-action-cell">
                         {canDo('stock.adjust') && <button
                           id={`stock-adjust-${p.id}`}
@@ -510,7 +512,7 @@ export default function StockPage() {
                           <Trash2 size={13} />
                         </button>}
                       </div>
-                    </td>
+                    </td>)}
                   </tr>
                 );
               })}
