@@ -116,6 +116,8 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  // true while a saved Supabase session is being restored after a page refresh
+  const [restoring, setRestoring] = useState(isSupabaseConfigured);
 
   // Load the staff profile (user + role tables) for a Supabase Auth user
   const loadProfile = useCallback(async (authUser) => {
@@ -152,10 +154,13 @@ export function AuthProvider({ children }) {
     if (!isSupabaseConfigured) return;
     let cancelled = false;
     supabase.auth.getSession().then(async ({ data }) => {
-      if (cancelled || !data?.session?.user) return;
-      const res = await loadProfile(data.session.user);
-      if (!cancelled && res.user) setUser(res.user);
-    });
+      if (cancelled) return;
+      if (data?.session?.user) {
+        const res = await loadProfile(data.session.user);
+        if (!cancelled && res.user) setUser(res.user);
+      }
+      if (!cancelled) setRestoring(false);
+    }).catch(() => { if (!cancelled) setRestoring(false); });
     return () => { cancelled = true; };
   }, [loadProfile]);
 
@@ -251,7 +256,7 @@ export function AuthProvider({ children }) {
   const roleInfo = user ? ROLES[user.role] : null;
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, resetPassword, can, canDo, loading, error, roleInfo, authMode: isSupabaseConfigured ? 'supabase' : 'demo' }}>
+    <AuthContext.Provider value={{ user, login, logout, resetPassword, can, canDo, loading, restoring, error, roleInfo, authMode: isSupabaseConfigured ? 'supabase' : 'demo' }}>
       {children}
     </AuthContext.Provider>
   );

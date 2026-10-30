@@ -12,6 +12,8 @@ import { format, subMonths } from 'date-fns';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
 import { generateStructuredPDF } from '../utils/pdfGenerator';
+import { buildReport, reportToCSV, salesLines, serviceJobs, purchases } from '../utils/reportBuilder';
+import { lastSixMonths, sum } from '../data/reportData';
 
 const COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#6366f1'];
 
@@ -31,35 +33,22 @@ const CustomTooltip = ({ active, payload, label }) => {
   return null;
 };
 
-// Sales by month (last 6 months)
-const monthlySales = Array.from({ length: 6 }, (_, i) => {
-  const d = subMonths(new Date(), 5 - i);
-  const month = format(d, 'MMM');
-  const monthStr = format(d, 'yyyy-MM');
-  const orders = SALES_ORDERS.filter(o => o.date?.startsWith(monthStr));
-  return {
-    month,
-    revenue: orders.reduce((s, o) => s + o.grandTotal, 0) || Math.round(Math.random() * 500000 + 200000),
-    orders: orders.length || Math.round(Math.random() * 10 + 5)
-  };
-});
-
-// Service stats
-const serviceStats = [
-  { type: 'Installation', count: SERVICE_JOBS.filter(j => j.type === 'installation').length },
-  { type: 'Repair',       count: SERVICE_JOBS.filter(j => j.type === 'repair').length },
-  { type: 'Maintenance',  count: SERVICE_JOBS.filter(j => j.type === 'maintenance').length },
-];
-
-// Stock by category
-const stockByCategory = [
-  { name: 'Processors', value: 23 },
-  { name: 'Motherboards', value: 13 },
-  { name: 'Memory & Storage', value: 6 },
-  { name: 'Graphics Cards', value: 17 },
-  { name: 'Peripherals', value: 25 },
-  { name: 'Spare Parts', value: 55 },
-];
+// Chart data from the sales history + records made in the app
+const chartData = () => {
+  const lines = salesLines();
+  const jobs = serviceJobs();
+  const monthlySales = lastSixMonths().map(m => {
+    const ls = lines.filter(l => l.month === m.key);
+    return { month: m.short, revenue: sum(ls, l => l.total), orders: new Set(ls.map(l => l.invoiceNo)).size };
+  });
+  const serviceStats = ['installation', 'repair', 'maintenance'].map(t => ({
+    type: t.charAt(0).toUpperCase() + t.slice(1), count: jobs.filter(j => j.type === t).length,
+  }));
+  const stockByCategory = CATEGORIES.map(c => ({
+    name: c.name, value: PRODUCTS.filter(p => p.category === c.id).reduce((a, p) => a + p.stock, 0),
+  }));
+  return { monthlySales, serviceStats, stockByCategory };
+};
 
 export default function ReportsPage() {
   const toast = useToast();
@@ -67,9 +56,10 @@ export default function ReportsPage() {
   // Report types each role may generate (from the use case diagram)
   const REPORT_TYPES = {
     admin: ['consolidated', 'sales', 'stock', 'service', 'finance'],
-    sales: ['sales'], storekeeper: ['stock'], purchase: ['stock'], finance: ['finance', 'sales'], technician: ['service'],
+    sales: ['sales'], storekeeper: ['stock'], purchase: ['purchase', 'stock'], finance: ['finance', 'sales'], technician: ['service'],
   };
-  const REPORT_LABELS = { consolidated: 'Consolidated (all departments)', sales: 'Sales & Revenue', stock: 'Stock & Valuation', service: 'Service & Repairs', finance: 'Financial Statement' };
+  REPORT_TYPES.admin = ['consolidated', 'sales', 'stock', 'service', 'purchase', 'finance'];
+  const REPORT_LABELS = { consolidated: 'Consolidated (all departments)', sales: 'Sales & Revenue', stock: 'Stock & Valuation', service: 'Service & Repairs', purchase: 'Purchasing', finance: 'Financial Statement' };
   const allowedTypes = REPORT_TYPES[user?.role] || ['sales'];
   const [reportType, setReportType] = useState(allowedTypes[0]);
   const [schedules, setSchedules] = useState(() => [...REPORT_SCHEDULES]);
@@ -89,196 +79,27 @@ export default function ReportsPage() {
     setSchedules([...REPORT_SCHEDULES]);
   };
 
-  const totalRevenue = SALES_ORDERS.reduce((s, o) => s + o.grandTotal, 0);
-  const totalCost = PURCHASE_ORDERS.filter(p => p.status === 'received').reduce((s, p) => s + p.grandTotal, 0);
-  const grossProfit = totalRevenue - totalCost;
+  const { monthlySales, serviceStats, stockByCategory } = chartData();
+  const allLines = salesLines();
+  const totalRevenue = sum(allLines, l => l.total);
+  const totalCost = sum(purchases().filter(p => p.status === 'received'), p => p.total);
+  const grossProfit = sum(allLines, l => l.total - l.unitCost * l.qty);
   const profitMargin = totalRevenue > 0 ? ((grossProfit / totalRevenue) * 100).toFixed(1) : 0;
+  const report = buildReport(reportType);
 
-  // Structured PDF Export Handler
+  // Grouped PDF report
   const exportPDF = () => {
     try {
-      if (reportType === 'consolidated') {
-        const stockValue = PRODUCTS.reduce((a, p) => a + p.stock * p.cost, 0);
-        const paidIn = PAYMENTS.reduce((a, p) => a + p.amount, 0);
-        const payablePending = PURCHASE_ORDERS.filter(p => p.payableStatus === 'pending').reduce((a, p) => a + p.grandTotal, 0);
-        const rows = [
-          ['Sales', 'Orders / revenue', `${SALES_ORDERS.length} orders`, fmt(totalRevenue)],
-          ['Sales', 'Outstanding customer balance', `${SALES_ORDERS.filter(o => o.balance > 0).length} invoices`, fmt(SALES_ORDERS.reduce((a, o) => a + o.balance, 0))],
-          ['Purchasing', 'Purchase orders received', `${PURCHASE_ORDERS.filter(p => p.status === 'received').length} of ${PURCHASE_ORDERS.length}`, fmt(totalCost)],
-          ['Inventory', 'Stock value at cost', `${PRODUCTS.length} products, ${getLowStockProducts().length} low`, fmt(stockValue)],
-          ['Service', 'Service jobs', `${SERVICE_JOBS.filter(j => j.status === 'completed').length} completed of ${SERVICE_JOBS.length}`, fmt(SERVICE_JOBS.reduce((a, j) => a + (j.serviceFee || 0), 0))],
-          ['Returns', 'Exchange / refund requests', `${RETURNS.filter(r => r.status === 'pending').length} pending of ${RETURNS.length}`, fmt(RETURNS.reduce((a, r) => a + (r.refundAmount || 0), 0))],
-          ['Finance', 'Customer payments received', `${PAYMENTS.length} payments`, fmt(paidIn)],
-          ['Finance', 'Supplier payables pending', `${PURCHASE_ORDERS.filter(p => p.payableStatus === 'pending').length} payables`, fmt(payablePending)],
-        ];
-        generateStructuredPDF({
-          title: 'Consolidated Business Report',
-          subtitle: 'Sales, purchasing, inventory, service and finance in one summary',
-          reportType: 'consolidated',
-          generatedBy: user?.name || 'Authorized Admin',
-          fileName: `Consolidated_Report_${format(new Date(), 'yyyy-MM-dd')}.pdf`,
-          kpis: [
-            { label: 'Revenue', value: fmt(totalRevenue), color: '#3b82f6' },
-            { label: 'Purchases', value: fmt(totalCost), color: '#ef4444' },
-            { label: 'Gross Profit', value: fmt(grossProfit), color: '#10b981' },
-            { label: 'Stock Value', value: fmt(stockValue), color: '#8b5cf6' },
-          ],
-          headers: ['Department', 'Measure', 'Count', 'Amount (LKR)'],
-          rows,
-        });
-      } else if (reportType === 'sales') {
-        const headers = ['Invoice No', 'Date', 'Customer', 'Items', 'Status', 'Total (LKR)', 'Paid (LKR)', 'Balance'];
-        const rows = SALES_ORDERS.map(o => {
-          const cust = getCustomer(o.customerId);
-          return [
-            o.invoiceNo || o.id,
-            o.date,
-            cust?.name || 'Walk-in Customer',
-            o.items?.reduce((s, it) => s + it.qty, 0) || 1,
-            o.paymentStatus?.toUpperCase(),
-            fmt(o.grandTotal),
-            fmt(o.amountPaid),
-            fmt(o.balance)
-          ];
-        });
-
-        generateStructuredPDF({
-          title: 'Sales & Revenue Performance Statement',
-          subtitle: 'Official breakdown of customer sales orders, tax invoices, and payment statuses',
-          reportType: 'sales',
-          generatedBy: user?.name || 'Authorized Admin',
-          fileName: `Sales_Report_${format(new Date(), 'yyyy-MM-dd')}.pdf`,
-          kpis: [
-            { label: 'Total Revenue', value: fmt(totalRevenue), color: '#3b82f6' },
-            { label: 'Total Orders', value: SALES_ORDERS.length, color: '#10b981' },
-            { label: 'Gross Margin', value: `${profitMargin}%`, color: '#8b5cf6' },
-            { label: 'Outstanding Balance', value: fmt(SALES_ORDERS.reduce((s, o) => s + o.balance, 0)), color: '#ef4444' }
-          ],
-          headers,
-          rows,
-          totals: {
-            label: 'Total Revenue Sum:',
-            value: fmt(totalRevenue)
-          }
-        });
-      } else if (reportType === 'stock') {
-        const headers = ['SKU', 'Product Name', 'Category', 'Stock Qty', 'Min Stock', 'Unit Cost', 'Selling Price', 'Status'];
-        const rows = PRODUCTS.map(p => {
-          const cat = CATEGORIES.find(c => c.id === p.category)?.name || p.category;
-          const status = p.stock === 0 ? 'OUT OF STOCK' : p.stock <= p.minStock ? 'LOW STOCK' : 'IN STOCK';
-          return [
-            p.sku,
-            p.name,
-            cat,
-            p.stock,
-            p.minStock,
-            fmt(p.costPrice || p.price * 0.75),
-            fmt(p.price),
-            status
-          ];
-        });
-
-        const totalStockUnits = PRODUCTS.reduce((s, p) => s + p.stock, 0);
-        const totalValuation = PRODUCTS.reduce((s, p) => s + (p.stock * p.price), 0);
-
-        generateStructuredPDF({
-          title: 'Inventory Valuation & Warehouse Stock Report',
-          subtitle: 'Real-time SKU quantities, minimum stock safety thresholds, and inventory valuation',
-          reportType: 'stock',
-          generatedBy: user?.name || 'Authorized Admin',
-          fileName: `Inventory_Stock_Report_${format(new Date(), 'yyyy-MM-dd')}.pdf`,
-          kpis: [
-            { label: 'Total SKUs', value: PRODUCTS.length, color: '#3b82f6' },
-            { label: 'Units in Stock', value: totalStockUnits, color: '#10b981' },
-            { label: 'Low Stock Alerts', value: getLowStockProducts().length, color: '#f59e0b' },
-            { label: 'Stock Valuation', value: fmt(totalValuation), color: '#8b5cf6' }
-          ],
-          headers,
-          rows,
-          totals: {
-            label: 'Total Valuation:',
-            value: fmt(totalValuation)
-          }
-        });
-      } else if (reportType === 'service') {
-        const headers = ['Job ID', 'Customer', 'Product', 'Type', 'Status', 'Technician', 'Service Fee', 'Billing'];
-        const rows = SERVICE_JOBS.map(j => {
-          const cust = getCustomer(j.customerId);
-          const prod = getProduct(j.productId);
-          const tech = getUser(j.assignedTo);
-          return [
-            j.id,
-            cust?.name || 'Customer',
-            prod?.name || 'Equipment',
-            j.type?.toUpperCase(),
-            j.status?.toUpperCase(),
-            tech?.name || 'Unassigned',
-            fmt(j.serviceFee || 0),
-            j.billingStatus || 'unbilled'
-          ];
-        });
-
-        generateStructuredPDF({
-          title: 'Service, Maintenance & Repair Performance Report',
-          subtitle: 'Detailed record of installations, warranty repairs, and technician assignments',
-          reportType: 'service',
-          generatedBy: user?.name || 'Authorized Admin',
-          fileName: `Service_Performance_Report_${format(new Date(), 'yyyy-MM-dd')}.pdf`,
-          kpis: [
-            { label: 'Total Job Tickets', value: SERVICE_JOBS.length, color: '#3b82f6' },
-            { label: 'Completed Jobs', value: SERVICE_JOBS.filter(j => j.status === 'completed').length, color: '#10b981' },
-            { label: 'In Progress / Assigned', value: SERVICE_JOBS.filter(j => j.status !== 'completed').length, color: '#f59e0b' },
-            { label: 'Under Warranty', value: SERVICE_JOBS.filter(j => j.warrantyValid).length, color: '#8b5cf6' }
-          ],
-          headers,
-          rows
-        });
-      } else {
-        // Financial Statement
-        const headers = ['Receipt / PO Ref', 'Category', 'Party / Counterparty', 'Date', 'Method / Status', 'Amount (LKR)'];
-        const rows = [
-          ...PAYMENTS.map(p => {
-            const c = getCustomer(p.customerId);
-            return [
-              p.id,
-              'Customer Receipt',
-              c?.name || 'Walk-in',
-              p.date,
-              p.method?.toUpperCase(),
-              `+ ${fmt(p.amount)}`
-            ];
-          }),
-          ...PURCHASE_ORDERS.map(po => {
-            const s = SUPPLIERS.find(sup => sup.id === po.supplierId);
-            return [
-              po.id,
-              'Supplier Payable',
-              s?.name || 'Supplier',
-              po.date,
-              po.payableStatus?.toUpperCase(),
-              `- ${fmt(po.grandTotal)}`
-            ];
-          })
-        ];
-
-        generateStructuredPDF({
-          title: 'Corporate Financial Statement & Cash Flow Report',
-          subtitle: 'Audit record of customer payment inflows, supplier purchase payables, and net position',
-          reportType: 'finance',
-          generatedBy: user?.name || 'Authorized Admin',
-          fileName: `Financial_Statement_${format(new Date(), 'yyyy-MM-dd')}.pdf`,
-          kpis: [
-            { label: 'Total Inflow Received', value: fmt(PAYMENTS.reduce((s, p) => s + p.amount, 0)), color: '#10b981' },
-            { label: 'Supplier Purchases', value: fmt(totalCost), color: '#ef4444' },
-            { label: 'Gross Operating Profit', value: fmt(grossProfit), color: '#3b82f6' },
-            { label: 'Net Margin', value: `${profitMargin}%`, color: '#8b5cf6' }
-          ],
-          headers,
-          rows
-        });
-      }
-
-      toast.success('Well-structured PDF report generated and downloaded!');
+      generateStructuredPDF({
+        title: report.title,
+        subtitle: report.subtitle,
+        reportType,
+        generatedBy: user?.name || 'Administrator',
+        fileName: `${report.title.replace(/[^A-Za-z]+/g, '_')}_${format(new Date(), 'yyyy-MM-dd')}.pdf`,
+        kpis: report.kpis,
+        sections: report.sections,
+      });
+      toast.success(`${report.title} downloaded as PDF`);
     } catch (err) {
       console.error(err);
       toast.error('Failed to generate PDF report: ' + err.message);
@@ -286,15 +107,7 @@ export default function ReportsPage() {
   };
 
   const exportCSV = () => {
-    const data = reportType === 'sales' ? SALES_ORDERS : reportType === 'stock' ? PRODUCTS : reportType === 'finance' ? PAYMENTS
-      : reportType === 'consolidated' ? [
-        { department: 'Sales', amount: totalRevenue }, { department: 'Purchasing', amount: totalCost },
-        { department: 'Service', amount: SERVICE_JOBS.reduce((a, j) => a + (j.serviceFee || 0), 0) }, { department: 'Finance (received)', amount: PAYMENTS.reduce((a, p) => a + p.amount, 0) },
-      ] : SERVICE_JOBS;
-    const header = Object.keys(data[0] || {}).filter(k => typeof data[0][k] !== 'object').join(',');
-    const rows = data.map(r => Object.entries(r).filter(([_, v]) => typeof v !== 'object').map(([_, v]) => v).join(','));
-    const csv = [header, ...rows].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
+    const blob = new Blob([reportToCSV(report)], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -392,6 +205,45 @@ export default function ReportsPage() {
         ))}
       </div>
 
+      {/* Report preview: the same grouped sections that go into the PDF */}
+      <div className="card" id="report-preview" style={{ marginBottom: 24 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 8, marginBottom: 4 }}>
+          <div style={{ fontWeight: 700, fontSize: 16 }}>{report.title}</div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Preview of the PDF report</div>
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 14 }}>{report.subtitle}</div>
+        <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', marginBottom: 16 }}>
+          {report.kpis.map(k => (
+            <div key={k.label} className="stat-card" style={{ borderTop: `3px solid ${k.color}` }}>
+              <div className="stat-card-header"><span className="stat-card-label">{k.label}</span></div>
+              <div className="stat-card-value" style={{ fontSize: 18 }}>{k.value}</div>
+            </div>
+          ))}
+        </div>
+        {report.sections.map(sec => (
+          <div key={sec.heading} style={{ marginBottom: 18 }}>
+            <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, paddingLeft: 8, borderLeft: '3px solid var(--primary-500, #3b82f6)' }}>{sec.heading}</div>
+            <div className="table-container">
+              <table className="table">
+                <thead><tr>{sec.headers.map((h, i) => <th key={h} style={{ textAlign: sec.align[i] }}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {sec.rows.map((r, ri) => r.group ? (
+                    <tr key={ri}><td colSpan={sec.headers.length} style={{ fontWeight: 700, background: 'var(--bg-elevated)', color: 'var(--primary-500, #3b82f6)' }}>{r.group}</td></tr>
+                  ) : (
+                    <tr key={ri} style={r.subtotal ? { fontWeight: 700, background: 'var(--bg-elevated)' } : undefined}>
+                      {(r.subtotal || r).map((c, ci) => <td key={ci} style={{ textAlign: sec.align[ci] }}>{c}</td>)}
+                    </tr>
+                  ))}
+                </tbody>
+                {sec.total && (
+                  <tfoot><tr>{sec.total.map((c, ci) => <td key={ci} style={{ textAlign: sec.align[ci], fontWeight: 800, borderTop: '2px solid var(--border-default)' }}>{c}</td>)}</tr></tfoot>
+                )}
+              </table>
+            </div>
+          </div>
+        ))}
+      </div>
+
       {/* Charts Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 20, marginBottom: 20 }}>
         {/* Monthly Revenue */}
@@ -434,7 +286,7 @@ export default function ReportsPage() {
             <BarChart data={stockByCategory} layout="vertical">
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" horizontal={false} />
               <XAxis type="number" stroke="var(--text-muted)" tick={{ fontSize: 11 }} />
-              <YAxis dataKey="name" type="category" stroke="var(--text-muted)" tick={{ fontSize: 11 }} width={70} />
+              <YAxis dataKey="name" type="category" stroke="var(--text-muted)" tick={{ fontSize: 11 }} width={110} />
               <Tooltip />
               <Bar dataKey="value" name="Units" fill="#8b5cf6" radius={[0, 4, 4, 0]} />
             </BarChart>

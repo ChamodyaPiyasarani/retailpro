@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Search, Plus, Edit2, Phone, Mail, MapPin, CreditCard, History, Trash2, ShieldCheck } from 'lucide-react';
 import { CUSTOMERS, SALES_ORDERS, fmt, newCustId } from '../data/mockData';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
+import { canUseCustomerDb, loadCustomers, insertCustomer, updateCustomer, deleteCustomer, fromRow } from '../lib/customersDb';
 
-function CustomerModal({ customer, onClose, onSave }) {
+function CustomerModal({ customer, onClose, onSave, saving = false }) {
   const [form, setForm] = useState(customer || { name:'', phone:'', email:'', address:'', creditLimit:50000 });
   const set = (k,v) => setForm(f => ({ ...f, [k]:v }));
 
@@ -43,8 +44,8 @@ function CustomerModal({ customer, onClose, onSave }) {
         </div>
         <div className="modal-footer">
           <button className="btn btn-outline" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary" onClick={() => onSave(form)} disabled={!form.name || !form.phone}>
-            {customer ? 'Save Changes' : 'Create Customer'}
+          <button className="btn btn-primary" onClick={() => onSave(form)} disabled={!form.name || !form.phone || saving}>
+            {saving ? 'Saving…' : customer ? 'Save Changes' : 'Create Customer'}
           </button>
         </div>
       </div>
@@ -66,7 +67,40 @@ export default function CustomersPage() {
     c.email?.toLowerCase().includes(q.toLowerCase())
   );
 
-  const handleSave = (form) => {
+  const useDb = canUseCustomerDb(user);
+  const [saving, setSaving] = useState(false);
+
+  // Keep the shared CUSTOMERS list (used by Sales, Payments, Reports …) the same as the screen
+  const syncGlobal = (list) => { CUSTOMERS.splice(0, CUSTOMERS.length, ...list); };
+
+  // Load customers from the database when signed in with a real account
+  useEffect(() => {
+    if (!useDb) return;
+    let alive = true;
+    loadCustomers(CUSTOMERS).then(res => {
+      if (!alive) return;
+      if (!res.ok) { toast.error(`Could not load customers: ${res.message}`); return; }
+      const list = res.rows.map(r => fromRow(r, CUSTOMERS.find(c => c.id === `C${String(r.customer_id).padStart(3, '0')}`)));
+      syncGlobal(list);
+      setCustomers([...list]);
+    });
+    return () => { alive = false; };
+  }, [useDb]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleSave = async (form) => {
+    if (useDb) {
+      setSaving(true);
+      const res = modal === 'new' ? await insertCustomer(form) : await updateCustomer(modal.dbId, form);
+      setSaving(false);
+      if (!res.ok) { toast.error(`Not saved: ${res.message}`); return; }
+      const saved = fromRow(res.row, modal === 'new' ? { creditLimit: form.creditLimit } : { ...modal, creditLimit: form.creditLimit });
+      const list = modal === 'new' ? [...customers, saved] : customers.map(c => (c.id === saved.id ? saved : c));
+      syncGlobal(list);
+      setCustomers(list);
+      toast.success(modal === 'new' ? `Customer ${saved.id} saved to the database` : `Customer ${saved.id} updated in the database`);
+      setModal(null);
+      return;
+    }
     if (modal === 'new') {
       const newC = { ...form, id: newCustId(), creditUsed:0, balance:0, createdAt: new Date().toISOString().slice(0,10) };
       setCustomers(cs => [...cs, newC]);
@@ -81,14 +115,17 @@ export default function CustomersPage() {
     setModal(null);
   };
 
-  const handleDelete = (c) => {
-    if (confirm(`Are you sure you want to delete customer ${c.name}?`)) {
-      setCustomers(cs => cs.filter(x => x.id !== c.id));
-      const i = CUSTOMERS.findIndex(x => x.id === c.id);
-      if (i !== -1) CUSTOMERS.splice(i, 1);
-      toast.success(`Customer ${c.name} deleted`);
-      if (detail?.id === c.id) setDetail(null);
+  const handleDelete = async (c) => {
+    if (!confirm(`Are you sure you want to delete customer ${c.name}?`)) return;
+    if (useDb && c.dbId) {
+      const res = await deleteCustomer(c.dbId);
+      if (!res.ok) { toast.error(res.message); return; }
     }
+    const list = customers.filter(x => x.id !== c.id);
+    syncGlobal(list);
+    setCustomers(list);
+    toast.success(`Customer ${c.name} deleted`);
+    if (detail?.id === c.id) setDetail(null);
   };
 
   const customerOrders = (id) => SALES_ORDERS.filter(o => o.customerId === id);
@@ -101,7 +138,7 @@ export default function CustomersPage() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Customers</h1>
-          <p className="page-subtitle">{customers.length} registered customers</p>
+          <p className="page-subtitle">{customers.length} registered customers{useDb ? ' · saved in the database' : ''}</p>
         </div>
         <div className="page-header-actions">
           {canDo('customer.add') && (
@@ -187,7 +224,7 @@ export default function CustomersPage() {
       </div>
 
       {/* Modal */}
-      {modal && <CustomerModal customer={modal === 'new' ? null : modal} onClose={() => setModal(null)} onSave={handleSave} />}
+      {modal && <CustomerModal customer={modal === 'new' ? null : modal} onClose={() => setModal(null)} onSave={handleSave} saving={saving} />}
 
       {/* Detail Drawer */}
       {detail && (

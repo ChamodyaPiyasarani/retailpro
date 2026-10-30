@@ -14,6 +14,7 @@ export function generateStructuredPDF({
   headers = [],
   rows = [],
   totals = null,
+  sections = null,
   fileName = 'report.pdf'
 }) {
   const doc = new jsPDF({
@@ -35,12 +36,12 @@ export function generateStructuredPDF({
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(20);
   doc.setTextColor(15, 23, 42); // Slate 900
-  doc.text('RetailPro Business Suite', 14, 18);
+  doc.text('Rajida Holdings', 14, 18);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   doc.setTextColor(100, 116, 139); // Slate 500
-  doc.text('Enterprise Retail & Service Management System · No. 45 Galle Road, Colombo, Sri Lanka', 14, 23);
+  doc.text('Computer Hardware, IT Parts & Services', 14, 23);
 
   // Top right metadata badge
   doc.setFontSize(8.5);
@@ -104,6 +105,65 @@ export function generateStructuredPDF({
     currentY += cardHeight + 8;
   }
 
+  // Footer drawn on every page
+  const drawFooter = () => {
+    const pageNum = doc.internal.getNumberOfPages();
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(148, 163, 184);
+    doc.text('Rajida Holdings · Confidential management report', 14, pageHeight - 10);
+    doc.text(`Page ${pageNum}`, pageWidth - 14, pageHeight - 10, { align: 'right' });
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.3);
+    doc.line(14, pageHeight - 14, pageWidth - 14, pageHeight - 14);
+  };
+
+  // --- 5a. Grouped sections (management reports) ---
+  if (sections && sections.length) {
+    let y = currentY;
+    sections.forEach((sec) => {
+      const cols = sec.headers.length;
+      if (y > pageHeight - 60) { doc.addPage(); y = 20; }
+      doc.setFillColor(37, 99, 235);
+      doc.rect(14, y - 3.6, 1.2, 5, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(30, 58, 138);
+      doc.text(sec.heading, 17.5, y);
+      const body = sec.rows.map((r) => {
+        if (r.group) return [{ content: r.group, colSpan: cols, styles: { fillColor: [224, 231, 255], textColor: [30, 58, 138], fontStyle: 'bold' } }];
+        if (r.subtotal) return r.subtotal.map((c) => ({ content: String(c), styles: { fillColor: [241, 245, 249], fontStyle: 'bold', textColor: [30, 41, 59] } }));
+        return r.map((c) => String(c));
+      });
+      // right-align numeric columns (all but the first)
+      const align = sec.align || sec.headers.map((_, i) => (i ? 'right' : 'left'));
+      const columnStyles = {};
+      align.forEach((a, i) => { columnStyles[i] = { halign: a }; });
+      autoTable(doc, {
+        startY: y + 3,
+        head: [sec.headers],
+        body,
+        foot: sec.total ? [sec.total.map(String)] : undefined,
+        showFoot: 'lastPage',
+        rowPageBreak: 'avoid',
+        theme: 'grid',
+        margin: { left: 14, right: 14, bottom: 24 },
+        headStyles: { fillColor: [30, 64, 175], textColor: 255, fontStyle: 'bold', fontSize: 8.5, cellPadding: 2.8 },
+        footStyles: { fillColor: [15, 23, 42], textColor: 255, fontStyle: 'bold', fontSize: 8.5, cellPadding: 2.8 },
+        bodyStyles: { fontSize: 8, textColor: [51, 65, 85], cellPadding: 2.4, lineColor: [226, 232, 240], lineWidth: 0.1 },
+        columnStyles,
+        didParseCell: (data) => {
+          if (data.section === 'head' || data.section === 'foot') data.cell.styles.halign = align[data.column.index];
+          if (data.section === 'body' && data.cell.colSpan > 1) data.cell.styles.halign = 'left';
+        },
+        didDrawPage: drawFooter,
+      });
+      y = (doc.lastAutoTable?.finalY || y) + 12;
+    });
+    doc.save(fileName);
+    return;
+  }
+
   // --- 5. Data Table ---
   autoTable(doc, {
     startY: currentY,
@@ -137,7 +197,7 @@ export function generateStructuredPDF({
       doc.setTextColor(148, 163, 184);
 
       // Left footer
-      doc.text('RetailPro Confidential · Generated from RetailPro Management Portal', 14, pageHeight - 10);
+      doc.text('Rajida Holdings · Confidential management report', 14, pageHeight - 10);
       // Right footer
       doc.text(`Page ${pageNum}`, pageWidth - 14, pageHeight - 10, { align: 'right' });
 

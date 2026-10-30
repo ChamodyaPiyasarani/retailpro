@@ -23,7 +23,12 @@ import SettingsPage from './pages/SettingsPage';
 import WarrantyPage from './pages/WarrantyPage';
 
 function ProtectedRoute({ children, perm }) {
-  const { user, can } = useAuth();
+  const { user, can, restoring } = useAuth();
+
+  // wait until a saved session is restored, then decide
+  if (restoring) {
+    return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Loading…</div>;
+  }
 
   if (!user) {
     return <Navigate to="/login" replace />;
