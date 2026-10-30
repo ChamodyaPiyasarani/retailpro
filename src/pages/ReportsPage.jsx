@@ -12,6 +12,7 @@ import { format, subMonths } from 'date-fns';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
 import { generateStructuredPDF } from '../utils/pdfGenerator';
+import ReportSheet from '../components/ReportSheet';
 import { buildReport, reportToCSV, salesLines, serviceJobs, purchases } from '../utils/reportBuilder';
 import { lastSixMonths, sum } from '../data/reportData';
 
@@ -205,44 +206,8 @@ export default function ReportsPage() {
         ))}
       </div>
 
-      {/* Report preview: the same grouped sections that go into the PDF */}
-      <div className="card" id="report-preview" style={{ marginBottom: 24 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 8, marginBottom: 4 }}>
-          <div style={{ fontWeight: 700, fontSize: 16 }}>{report.title}</div>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Preview of the PDF report</div>
-        </div>
-        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 14 }}>{report.subtitle}</div>
-        <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', marginBottom: 16 }}>
-          {report.kpis.map(k => (
-            <div key={k.label} className="stat-card" style={{ borderTop: `3px solid ${k.color}` }}>
-              <div className="stat-card-header"><span className="stat-card-label">{k.label}</span></div>
-              <div className="stat-card-value" style={{ fontSize: 18 }}>{k.value}</div>
-            </div>
-          ))}
-        </div>
-        {report.sections.map(sec => (
-          <div key={sec.heading} style={{ marginBottom: 18 }}>
-            <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, paddingLeft: 8, borderLeft: '3px solid var(--primary-500, #3b82f6)' }}>{sec.heading}</div>
-            <div className="table-container">
-              <table className="table">
-                <thead><tr>{sec.headers.map((h, i) => <th key={h} style={{ textAlign: sec.align[i] }}>{h}</th>)}</tr></thead>
-                <tbody>
-                  {sec.rows.map((r, ri) => r.group ? (
-                    <tr key={ri}><td colSpan={sec.headers.length} style={{ fontWeight: 700, background: 'var(--bg-elevated)', color: 'var(--primary-500, #3b82f6)' }}>{r.group}</td></tr>
-                  ) : (
-                    <tr key={ri} style={r.subtotal ? { fontWeight: 700, background: 'var(--bg-elevated)' } : undefined}>
-                      {(r.subtotal || r).map((c, ci) => <td key={ci} style={{ textAlign: sec.align[ci] }}>{c}</td>)}
-                    </tr>
-                  ))}
-                </tbody>
-                {sec.total && (
-                  <tfoot><tr>{sec.total.map((c, ci) => <td key={ci} style={{ textAlign: sec.align[ci], fontWeight: 800, borderTop: '2px solid var(--border-default)' }}>{c}</td>)}</tr></tfoot>
-                )}
-              </table>
-            </div>
-          </div>
-        ))}
-      </div>
+      {/* Report preview: looks the same as the downloaded PDF */}
+      <ReportSheet report={report} reportType={reportType} generatedBy={user?.name || 'Administrator'} />
 
       {/* Charts Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 20, marginBottom: 20 }}>

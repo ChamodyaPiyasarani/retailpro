@@ -60,25 +60,52 @@ export default function SettingsPage() {
             Choose your preferred color theme. This setting is remembered automatically on your device.
           </p>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            {/* Dark Mode card */}
             <button
               type="button"
               onClick={() => theme !== 'dark' && toggleTheme()}
-              className={`btn ${theme === 'dark' ? 'btn-primary' : 'btn-outline'}`}
-              style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}
+              style={{
+                padding: '16px',
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
+                borderRadius: 'var(--radius-lg)',
+                border: theme === 'dark' ? '2px solid var(--primary-500)' : '2px solid var(--border-default)',
+                background: theme === 'dark'
+                  ? 'linear-gradient(135deg, var(--primary-600), var(--primary-500))'
+                  : 'var(--bg-elevated)',
+                color: theme === 'dark' ? '#fff' : 'var(--text-primary)',
+                cursor: theme === 'dark' ? 'default' : 'pointer',
+                boxShadow: theme === 'dark' ? '0 4px 16px rgba(37,99,235,.4)' : 'none',
+                transition: 'all 0.2s',
+                fontFamily: 'var(--font-sans)',
+              }}
             >
               <Moon size={22} />
-              <span style={{ fontWeight: 700 }}>Dark Mode</span>
-              <span style={{ fontSize: 11, opacity: 0.8 }}>Sleek slate dark aesthetic</span>
+              <span style={{ fontWeight: 700, fontSize: 14 }}>Dark Mode</span>
+              <span style={{ fontSize: 11, opacity: 0.75 }}>Sleek slate dark aesthetic</span>
             </button>
+
+            {/* Light Mode card */}
             <button
               type="button"
               onClick={() => theme !== 'light' && toggleTheme()}
-              className={`btn ${theme === 'light' ? 'btn-primary' : 'btn-outline'}`}
-              style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}
+              style={{
+                padding: '16px',
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
+                borderRadius: 'var(--radius-lg)',
+                border: theme === 'light' ? '2px solid var(--primary-500)' : '2px solid var(--border-default)',
+                background: theme === 'light'
+                  ? 'linear-gradient(135deg, var(--primary-600), var(--primary-500))'
+                  : 'var(--bg-elevated)',
+                color: theme === 'light' ? '#fff' : 'var(--text-primary)',
+                cursor: theme === 'light' ? 'default' : 'pointer',
+                boxShadow: theme === 'light' ? '0 4px 16px rgba(37,99,235,.4)' : 'none',
+                transition: 'all 0.2s',
+                fontFamily: 'var(--font-sans)',
+              }}
             >
               <Sun size={22} />
-              <span style={{ fontWeight: 700 }}>Light Mode</span>
-              <span style={{ fontSize: 11, opacity: 0.8 }}>Crisp high-contrast day mode</span>
+              <span style={{ fontWeight: 700, fontSize: 14 }}>Light Mode</span>
+              <span style={{ fontSize: 11, opacity: 0.75 }}>Crisp high-contrast day mode</span>
             </button>
           </div>
         </div>
