@@ -1,0 +1,88 @@
+# Inventory module: category, product, batch, stock_movement, stock_alert, spare_part_request
+@url = {{$dotenv SUPABASE_URL}}
+@key = {{$dotenv SUPABASE_ANON_KEY}}
+@token = {{login.response.body.$.access_token}}
+
+### 0) Sign in first (click "Send Request" here) – the other requests use this token
+# @name login
+POST {{url}}/auth/v1/token?grant_type=password
+apikey: {{key}}
+Content-Type: application/json
+
+{ "email": "{{$dotenv TEST_EMAIL}}", "password": "{{$dotenv TEST_PASSWORD}}" }
+
+### 1) All categories
+GET {{url}}/rest/v1/category?select=*&order=category_id
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 2) All products with their category and supplier
+GET {{url}}/rest/v1/product?select=product_id,sku,name,unit_price,cost_price,stock_qty,reorder_level,is_active,category(category_name),supplier(name)&order=product_id
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 3) One product (P001 = product_id 1)
+GET {{url}}/rest/v1/product?product_id=eq.1
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 4) Low stock: products at or below the reorder level (view in the result: stock_qty <= reorder_level)
+GET {{url}}/rest/v1/product?select=product_id,name,stock_qty,reorder_level&stock_qty=lte.5&order=stock_qty
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 5) Spare parts only
+GET {{url}}/rest/v1/product?select=product_id,name,stock_qty&is_spare_part=eq.true
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 6) CREATE a test product (Create)
+POST {{url}}/rest/v1/product
+apikey: {{key}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Prefer: return=representation
+
+{ "sku": "TEST-API-001", "name": "API test product", "unit_price": 1000, "cost_price": 700, "stock_qty": 5,
+  "reorder_level": 2, "unit_of_measure": "pcs", "is_spare_part": false, "is_active": true, "category_id": 5, "supplier_id": 2 }
+
+### 7) READ the test product
+GET {{url}}/rest/v1/product?sku=eq.TEST-API-001
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 8) UPDATE the test product price and stock (Update)
+PATCH {{url}}/rest/v1/product?sku=eq.TEST-API-001
+apikey: {{key}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Prefer: return=representation
+
+{ "unit_price": 1250, "stock_qty": 8 }
+
+### 9) DELETE the test product (Delete)
+DELETE {{url}}/rest/v1/product?sku=eq.TEST-API-001
+apikey: {{key}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Prefer: return=representation
+
+### 10) Batches / serial numbers with product
+GET {{url}}/rest/v1/batch?select=batch_serial_number,quantity,received_date,supplier_warranty_expiry,status,product(name)
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 11) Last 20 stock movements
+GET {{url}}/rest/v1/stock_movement?select=movement_id,movement_type,quantity,reason,movement_date,product(name)&order=movement_id.desc&limit=20
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 12) Reorder alerts raised by the store
+GET {{url}}/rest/v1/stock_alert?select=*,product(name)&alert_type=eq.reorder
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 13) Spare part requests from technicians
+GET {{url}}/rest/v1/spare_part_request?select=request_id,requested_qty,issued_qty,status,request_date,service_job_id,product(name)&order=request_id
+apikey: {{key}}
+Authorization: Bearer {{token}}

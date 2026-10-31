@@ -1,0 +1,32 @@
+# Rajida Holdings – Supabase REST API tests
+# Sign in, see who you are, sign out.
+@url = {{$dotenv SUPABASE_URL}}
+@key = {{$dotenv SUPABASE_ANON_KEY}}
+@token = {{login.response.body.$.access_token}}
+
+### 0) Sign in first (click "Send Request" here) – the other requests use this token
+# @name login
+POST {{url}}/auth/v1/token?grant_type=password
+apikey: {{key}}
+Content-Type: application/json
+
+{ "email": "{{$dotenv TEST_EMAIL}}", "password": "{{$dotenv TEST_PASSWORD}}" }
+
+### 1) Who am I (Supabase Auth user)
+GET {{url}}/auth/v1/user
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 2) My staff profile and role
+GET {{url}}/rest/v1/user?select=user_id,full_name,email,user_type,is_active,is_locked,role(role_name)&email=eq.{{$dotenv TEST_EMAIL}}
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 3) Without a token the data is protected (Row Level Security) – returns an empty list []
+GET {{url}}/rest/v1/product?select=product_id,name
+apikey: {{key}}
+
+### 4) Sign out
+POST {{url}}/auth/v1/logout
+apikey: {{key}}
+Authorization: Bearer {{token}}

@@ -2,8 +2,8 @@ import { useState, useMemo } from 'react';
 import { Search, Plus, ShoppingCart, Trash2, X, User, CheckCircle, CreditCard } from 'lucide-react';
 import {
   PRODUCTS, CUSTOMERS, CATEGORIES, SALES_ORDERS, PAYMENTS, STOCK_MOVEMENTS,
-  fmt, newSaleId, newInvNo, newPayId, newSmId
-} from '../data/mockData';
+  fmt, newSaleId, newInvNo, newPayId, newSmId, checkPromotion
+} from '../data/store';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
 import { format } from 'date-fns';
@@ -13,9 +13,14 @@ function CheckoutModal({ cart, customer, onClose, onConfirm }) {
   const [isCreditSale, setIsCreditSale] = useState(false);
   const [amountPaid, setAmountPaid] = useState(cart.reduce((s,i)=>s+i.total,0));
   const [discount, setDiscount] = useState(0);
+  const [promoCode, setPromoCode] = useState('');
+  const [promo, setPromo] = useState(null);      // { ok, amount, discount, message }
 
   const subtotal = cart.reduce((s,i)=>s+i.unitPrice*i.qty,0);
-  const grandTotal = subtotal - discount;
+  // SD 22 applyPromotion(code): checked against dates and minimum order value
+  const applyPromo = () => setPromo(checkPromotion(promoCode, subtotal - discount));
+  const promoAmount = promo?.ok ? promo.amount : 0;
+  const grandTotal = subtotal - discount - promoAmount;
   const balance = grandTotal - (isCreditSale ? amountPaid : grandTotal);
   const creditAvail = customer ? (customer.creditLimit - customer.creditUsed) : 0;
   const creditOver = isCreditSale && (customer?.creditUsed + balance) > customer?.creditLimit;
@@ -58,6 +63,18 @@ function CheckoutModal({ cart, customer, onClose, onConfirm }) {
                 style={{ width:100, textAlign:'right', background:'var(--bg-elevated)', border:'1px solid var(--border-default)', borderRadius:6, padding:'4px 8px', color:'var(--text-primary)', fontFamily:'var(--font-mono)', fontSize:13 }}
               />
             </div>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8, fontSize:13 }}>
+              <span className="text-muted">Promotion code</span>
+              <div style={{ display:'flex', gap:6 }}>
+                <input id="promo-code" className="form-input" value={promoCode} onChange={e=>{ setPromoCode(e.target.value); setPromo(null); }} placeholder="e.g. NEWYEAR10" style={{ width:130, padding:'4px 8px', fontSize:13 }} />
+                <button id="btn-apply-promo" className="btn btn-outline btn-sm" disabled={!promoCode.trim()} onClick={applyPromo}>Apply</button>
+              </div>
+            </div>
+            {promo && (
+              <div id="promo-result" style={{ fontSize:12, color: promo.ok ? 'var(--success-400)' : 'var(--danger-400)', textAlign:'right' }}>
+                {promo.ok ? `${promo.message} – ${fmt(promo.amount)} off` : promo.message}
+              </div>
+            )}
             <div style={{ display:'flex', justifyContent:'space-between', fontSize:17, fontWeight:800, borderTop:'1px solid var(--border-subtle)', paddingTop:8 }}>
               <span>Grand Total</span>
               <span style={{ color:'var(--primary-300)', fontFamily:'var(--font-mono)' }}>{fmt(grandTotal)}</span>
@@ -94,7 +111,7 @@ function CheckoutModal({ cart, customer, onClose, onConfirm }) {
         </div>
         <div className="modal-footer">
           <button className="btn btn-outline" onClick={onClose}>Cancel</button>
-          <button className="btn btn-success" disabled={creditOver} onClick={() => onConfirm({ method, isCreditSale, amountPaid: isCreditSale ? amountPaid : grandTotal, discount, grandTotal })}>
+          <button className="btn btn-success" disabled={creditOver} onClick={() => onConfirm({ method, isCreditSale, amountPaid: isCreditSale ? amountPaid : grandTotal, discount: discount + promoAmount, promoCode: promo?.ok ? promo.discount.code : null, grandTotal })}>
             <CheckCircle size={15} /> Confirm Sale
           </button>
         </div>
@@ -145,10 +162,21 @@ export default function POSPage() {
 
   const removeItem = (productId) => setCart(c => c.filter(i => i.productId !== productId));
 
-  const handleConfirm = ({ method, isCreditSale, amountPaid, discount, grandTotal }) => {
+  const handleConfirm = ({ method, isCreditSale, amountPaid, discount, promoCode, grandTotal }) => {
     const invNo = newInvNo();
     const soId = newSaleId();
     const today = format(new Date(), 'yyyy-MM-dd');
+    // SD 22: check stock again at confirm time; if short, the order is kept on hold (no payment, no stock change)
+    const short = cart.filter(i => (PRODUCTS.find(x => x.id === i.productId)?.stock ?? 0) < i.qty);
+    if (short.length) {
+      SALES_ORDERS.push({ id: soId, invoiceNo: null, customerId: selectedCustomer?.id || null, date: today,
+        items: cart.map(i => ({ ...i, discount:0 })), subtotal: cart.reduce((s,i)=>s+i.unitPrice*i.qty,0), discountTotal: discount,
+        tax:0, taxRate:0, grandTotal, paymentMethod: method, paymentStatus:'unpaid', amountPaid:0, balance: grandTotal,
+        creditSale:false, status:'on-hold', holdReason: `Insufficient stock: ${short.map(i => i.name).join(', ')}`, createdBy: user?.id });
+      setCart([]); setSelectedCustomer(null); setShowCheckout(false);
+      toast.warning(`Insufficient stock – order ${soId} placed on hold`);
+      return;
+    }
     const balance = grandTotal - amountPaid;
 
     const order = {
@@ -157,7 +185,7 @@ export default function POSPage() {
       date: today,
       items: cart.map(i => ({ ...i, discount:0, total: i.total })),
       subtotal: cart.reduce((s,i)=>s+i.unitPrice*i.qty,0),
-      discountTotal: discount, tax:0, taxRate:0,
+      discountTotal: discount, promoCode, tax:0, taxRate:0,
       grandTotal, paymentMethod: method,
       paymentStatus: isCreditSale && balance > 0 ? 'partial' : 'paid',
       amountPaid, balance,

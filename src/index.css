@@ -291,6 +291,7 @@ body {
 .main-content {
   margin-left: var(--sidebar-width);
   flex: 1;
+  min-width: 0;            /* wide tables scroll inside their box instead of pushing the page off the screen */
   display: flex;
   flex-direction: column;
   min-height: 100vh;
@@ -311,6 +312,7 @@ body {
 
 .page-body {
   flex: 1;
+  min-width: 0;
   padding: 28px 32px;
   max-width: 1600px;
   width: 100%;

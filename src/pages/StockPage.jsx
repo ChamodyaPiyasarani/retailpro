@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Search, Eye, Package, TrendingDown, TrendingUp, AlertTriangle, BarChart2, Edit2, Plus, Trash2, ShieldCheck, BellRing, CheckCircle2 } from 'lucide-react';
-import { PRODUCTS, CATEGORIES, SUPPLIERS, STOCK_MOVEMENTS, getLowStockProducts, fmt, newSmId } from '../data/mockData';
+import { PRODUCTS, CATEGORIES, SUPPLIERS, STOCK_MOVEMENTS, SALES_ORDERS, PURCHASE_ORDERS, SERVICE_JOBS, BATCHES, getLowStockProducts, fmt, newSmId, newProductId, lowStockFirst, newestFirst } from '../data/store';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
 import { format } from 'date-fns';
+import { ReceivePurchaseTab, BatchesTab, VerifyStockModal, SparePartsTab } from '../components/StockExtras';
 
 function ProductModal({ product, onClose, onSave }) {
   const [form, setForm] = useState(product || {
@@ -233,6 +234,7 @@ export default function StockPage() {
   const [adjusting, setAdjusting] = useState(null);
   const [productModal, setProductModal] = useState(null); // null | 'new' | product obj
   const [activeTab, setActiveTab] = useState('products');
+  const [verifying, setVerifying] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   // Open the right tab for the menu item that brought the user here
@@ -289,7 +291,7 @@ export default function StockPage() {
     if (productModal === 'new') {
       const newP = {
         ...form,
-        id: `P0${products.length + 1}`
+        id: newProductId()
       };
       setProducts(ps => [...ps, newP]);
       PRODUCTS.push(newP);
@@ -315,6 +317,10 @@ export default function StockPage() {
   };
 
   const handleDeleteProduct = (p) => {
+    // a product that is on sales, purchase orders, batches or service jobs stays in the database (mark it obsolete instead)
+    const used = SALES_ORDERS.some(o => o.items.some(i => i.productId === p.id)) || PURCHASE_ORDERS.some(o => o.items.some(i => i.productId === p.id)) ||
+      SERVICE_JOBS.some(j => j.productId === p.id) || BATCHES.some(b => b.productId === p.id) || STOCK_MOVEMENTS.some(m => m.productId === p.id);
+    if (used) { toast.error('This product is used in sales or other records, so it cannot be deleted. Mark it obsolete instead.'); return; }
     if (confirm(`Are you sure you want to delete SKU ${p.sku} (${p.name}) from catalog?`)) {
       setProducts(ps => ps.filter(x => x.id !== p.id));
       const idx = PRODUCTS.findIndex(x => x.id === p.id);
@@ -323,14 +329,9 @@ export default function StockPage() {
     }
   };
 
-  const verifyConsistency = () => {
-    const discrepancies = products.filter(p => p.stock < 0);
-    if (discrepancies.length === 0) {
-      toast.success('Stock Consistency Verified: All 12 SKUs match physical ledger counts with 0 discrepancies.');
-    } else {
-      toast.warning(`Discrepancy detected in ${discrepancies.length} products.`);
-    }
-  };
+  // SD 17: count the shelf, compare with the system, correct the differences
+  const verifyConsistency = () => setVerifying(true);
+  const reload = () => setProducts([...PRODUCTS]);
 
   const triggerLowStockAlert = () => {
     const lowItems = getLowStockProducts();
@@ -342,6 +343,7 @@ export default function StockPage() {
   };
 
   const stockStatus = (p) => {
+    if (p.obsolete) return { label: 'Obsolete', cls: 'gray' };
     if (p.stock === 0) return { label: 'Out of Stock', cls: 'danger' };
     if (p.stock <= p.minStock) return { label: 'Low Stock', cls: 'warning' };
     return { label: 'In Stock', cls: 'success' };
@@ -398,6 +400,9 @@ export default function StockPage() {
         <div className="tabs">
           <button className={`tab-btn ${activeTab === 'products' ? 'active' : ''}`} onClick={() => setActiveTab('products')}>📦 Products Catalog</button>
           <button className={`tab-btn ${activeTab === 'movements' ? 'active' : ''}`} onClick={() => setActiveTab('movements')}>🔄 Stock Movements</button>
+          {canDo('stock.receive') && <button id="tab-receive" className={`tab-btn ${activeTab === 'receive' ? 'active' : ''}`} onClick={() => setActiveTab('receive')}>📥 Receive Purchase</button>}
+          <button id="tab-batches" className={`tab-btn ${activeTab === 'batches' ? 'active' : ''}`} onClick={() => setActiveTab('batches')}>🏷️ Batches</button>
+          <button id="tab-spares" className={`tab-btn ${activeTab === 'spares' ? 'active' : ''}`} onClick={() => setActiveTab('spares')}>🔧 Spare Parts</button>
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <div className="search-bar">
@@ -444,7 +449,7 @@ export default function StockPage() {
                   </td>
                 </tr>
               )}
-              {filtered.map(p => {
+              {lowStockFirst(filtered).map(p => {
                 const st = stockStatus(p);
                 const cat = CATEGORIES.find(c => c.id === p.category);
                 return (
@@ -535,7 +540,7 @@ export default function StockPage() {
               </tr>
             </thead>
             <tbody>
-              {[...STOCK_MOVEMENTS].reverse().map(m => {
+              {newestFirst(STOCK_MOVEMENTS).map(m => {
                 const prod = PRODUCTS.find(p => p.id === m.productId);
                 return (
                   <tr key={m.id}>
@@ -563,6 +568,11 @@ export default function StockPage() {
           </table>
         </div>
       )}
+
+      {activeTab === 'receive' && <ReceivePurchaseTab toast={toast} user={user} onChange={reload} />}
+      {activeTab === 'batches' && <BatchesTab toast={toast} canMark={canDo('stock.batch')} />}
+      {activeTab === 'spares' && <SparePartsTab toast={toast} user={user} canIssue={canDo('service.issueParts')} canManage={canDo('product.obsolete')} onChange={reload} />}
+      {verifying && <VerifyStockModal toast={toast} user={user} onClose={() => setVerifying(false)} onChange={reload} />}
 
       {adjusting && (
         <AdjustModal

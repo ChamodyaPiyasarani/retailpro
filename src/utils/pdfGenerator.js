@@ -1,6 +1,8 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { format } from 'date-fns';
+import { APP_SETTINGS } from '../data/store';
+const company = () => (APP_SETTINGS.businessName || 'Rajida Holdings').replace(/ \(Pvt\) Ltd$/, '');
 
 /**
  * Generates an executive, well-structured PDF report for RetailPro
@@ -36,7 +38,7 @@ export function generateStructuredPDF({
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(20);
   doc.setTextColor(15, 23, 42); // Slate 900
-  doc.text('Rajida Holdings', 14, 18);
+  doc.text(company(), 14, 18);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
@@ -111,7 +113,7 @@ export function generateStructuredPDF({
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(148, 163, 184);
-    doc.text('Rajida Holdings · Confidential management report', 14, pageHeight - 10);
+    doc.text(`${company()} · Confidential management report`, 14, pageHeight - 10);
     doc.text(`Page ${pageNum}`, pageWidth - 14, pageHeight - 10, { align: 'right' });
     doc.setDrawColor(226, 232, 240);
     doc.setLineWidth(0.3);
@@ -197,7 +199,7 @@ export function generateStructuredPDF({
       doc.setTextColor(148, 163, 184);
 
       // Left footer
-      doc.text('Rajida Holdings · Confidential management report', 14, pageHeight - 10);
+      doc.text(`${company()} · Confidential management report`, 14, pageHeight - 10);
       // Right footer
       doc.text(`Page ${pageNum}`, pageWidth - 14, pageHeight - 10, { align: 'right' });
 

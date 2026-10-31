@@ -1,11 +1,15 @@
 // Service History page — all completed jobs with full log
-import { SERVICE_JOBS, CUSTOMERS, PRODUCTS, USERS, fmt, getCustomer, getProduct, getUser } from '../data/mockData';
+import { SERVICE_JOBS, CUSTOMERS, PRODUCTS, USERS, fmt, getCustomer, getProduct, getUser, newestFirst } from '../data/store';
 import { useState } from 'react';
+import { useAuth } from '../context/AuthContext';
 import { Search } from 'lucide-react';
 
 export default function ServiceHistoryPage() {
+  const { user } = useAuth();
   const [q, setQ] = useState('');
-  const completed = SERVICE_JOBS.filter(j => j.status === 'completed');
+  // Technicians see only their own completed jobs; other roles see all
+  const mine = user?.role === 'technician';
+  const completed = SERVICE_JOBS.filter(j => j.status === 'completed' && (!mine || j.assignedTo === user.id));
 
   const filtered = completed.filter(j => {
     const c = getCustomer(j.customerId);
@@ -17,7 +21,7 @@ export default function ServiceHistoryPage() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Service History</h1>
-          <p className="page-subtitle">{completed.length} completed jobs</p>
+          <p className="page-subtitle">{completed.length} completed jobs{mine ? ' (yours)' : ''}</p>
         </div>
       </div>
 
@@ -37,7 +41,7 @@ export default function ServiceHistoryPage() {
             {filtered.length === 0 && (
               <tr><td colSpan={8}><div className="empty-state"><div className="empty-state-icon">📋</div><div className="empty-state-title">No completed jobs yet</div></div></td></tr>
             )}
-            {filtered.map(j => {
+            {newestFirst(filtered, 'completedAt').map(j => {
               const c = getCustomer(j.customerId);
               const p = getProduct(j.productId);
               const t = getUser(j.assignedTo);

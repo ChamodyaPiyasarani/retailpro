@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Search, ShieldCheck, ShieldX } from 'lucide-react';
-import { SALES_ORDERS, PRODUCTS, getCustomer, getWarrantyStatus } from '../data/mockData';
+import { SALES_ORDERS, PRODUCTS, getCustomer, getWarrantyStatus } from '../data/store';
 
 // Check Product Warranty Status (SD-31): look up by SKU or invoice number
 export default function WarrantyPage() {

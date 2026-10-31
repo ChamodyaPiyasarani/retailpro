@@ -11,8 +11,8 @@
 import {
   SALES_ORDERS, SERVICE_JOBS, PRODUCTS, PURCHASE_ORDERS, PAYMENTS, SUPPLIER_PAYMENTS,
   CUSTOMERS, SUPPLIERS, CATEGORIES, RETURNS, STOCK_MOVEMENTS, getUser, fmt,
-} from '../data/mockData';
-import { SALES_HISTORY, SERVICE_HISTORY, PURCHASE_HISTORY, groupBy, sum, lastSixMonths } from '../data/reportData';
+} from '../data/store';
+import { groupBy, sum, lastSixMonths } from '../data/reportData';
 
 const pct = (a, b) => (b > 0 ? `${((a / b) * 100).toFixed(1)}%` : '0.0%');
 const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1).replace('-', ' ') : '');
@@ -21,9 +21,9 @@ const custName = (id) => CUSTOMERS.find(c => c.id === id)?.name || 'Walk-in cust
 const supName = (id) => SUPPLIERS.find(s => s.id === id)?.name || id;
 const product = (id) => PRODUCTS.find(p => p.id === id);
 
-// ---------- Data sources (sample history + records made in the app) ----------
+// ---------- Data sources (records loaded from the database) ----------
 export function salesLines() {
-  const live = SALES_ORDERS.flatMap(o => {
+  const live = SALES_ORDERS.filter(o => o.status !== 'on-hold').flatMap(o => {
     const sub = o.items?.reduce((a, it) => a + it.total, 0) || 1;
     return (o.items || []).map(it => {
       const p = product(it.productId);
@@ -36,23 +36,41 @@ export function salesLines() {
       };
     });
   });
-  return [...SALES_HISTORY, ...live];
+  return live.filter(l => inRange(l.date));
 }
 
 export function serviceJobs() {
   const live = SERVICE_JOBS.map(j => ({
     id: j.id, date: j.createdAt, type: j.type, status: j.status, technician: getUser(j.assignedTo)?.name || 'Unassigned',
-    warranty: !!j.warrantyValid, fee: j.serviceFee || 0, days: null,
+    warranty: !!j.warrantyValid, fee: j.serviceFee || 0,
+    days: j.completedAt && j.createdAt ? Math.max(1, Math.round((new Date(j.completedAt) - new Date(j.createdAt)) / 86400000)) : null,
   }));
-  return [...SERVICE_HISTORY, ...live];
+  return live.filter(j => inRange(j.date));
 }
 
 export function purchases() {
   const live = PURCHASE_ORDERS.map(po => ({
     id: po.id, date: po.date, supplierId: po.supplierId, qty: po.items?.reduce((a, it) => a + it.qty, 0) || 0,
-    total: po.grandTotal || 0, status: po.status, onTime: true, paid: po.payableStatus === 'paid',
+    total: po.grandTotal || 0, status: po.status, paid: po.payableStatus === 'paid',
+    onTime: !po.receivedDate || !po.expectedDate || po.receivedDate <= po.expectedDate,
   }));
-  return [...PURCHASE_HISTORY, ...live];
+  return live.filter(p => inRange(p.date));
+}
+
+// ---------- Optional date range (From / To on the Reports page) ----------
+let RANGE = null;
+const inRange = (d) => !RANGE || (!!d && d.slice(0, 10) >= RANGE.from && d.slice(0, 10) <= RANGE.to);
+function periodMonths() {
+  if (!RANGE) return lastSixMonths();
+  const out = [];
+  let [y, m] = RANGE.from.slice(0, 7).split('-').map(Number);
+  const [ty, tm] = RANGE.to.slice(0, 7).split('-').map(Number);
+  const names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  while ((y < ty || (y === ty && m <= tm)) && out.length < 24) {
+    out.push({ key: `${y}-${String(m).padStart(2, '0')}`, label: `${names[m - 1]} ${y}`, short: names[m - 1] });
+    m++; if (m > 12) { m = 1; y++; }
+  }
+  return out;
 }
 
 const invoicesOf = (lines) => new Set(lines.map(l => l.invoiceNo)).size;
@@ -61,7 +79,7 @@ const profitOf = (lines) => sum(lines, l => l.total - l.unitCost * l.qty);
 // ---------- Sales ----------
 function salesReport() {
   const lines = salesLines();
-  const months = lastSixMonths();
+  const months = periodMonths();
   const revenue = sum(lines, l => l.total);
   const profit = profitOf(lines);
 
@@ -95,7 +113,7 @@ function salesReport() {
 
   return {
     title: 'Sales & Revenue Report',
-    subtitle: `Sales for the last 6 months (${months[0].label} – ${months[5].label}), grouped by month, category, product, payment method and customer`,
+    subtitle: `Sales for ${RANGE ? `${RANGE.from} to ${RANGE.to}` : `the last 6 months (${months[0].label} – ${months[months.length - 1].label})`}, grouped by month, category, product, payment method and customer`,
     kpis: [
       { label: 'Revenue', value: fmt(revenue), color: '#3b82f6' },
       { label: 'Invoices', value: invoicesOf(lines), color: '#10b981' },
@@ -169,7 +187,7 @@ function serviceReport() {
     const timed = js.filter(j => j.days);
     return [t, js.length, done(js), timed.length ? (sum(timed, j => j.days) / timed.length).toFixed(1) : '—', fmt(sum(js, j => j.fee))];
   });
-  const months = lastSixMonths();
+  const months = periodMonths();
   const byMonth = months.map(m => {
     const js = jobs.filter(j => j.date?.startsWith(m.key));
     return [m.label, js.length, done(js), fmt(sum(js, j => j.fee))];
@@ -202,7 +220,7 @@ function purchaseReport() {
     const ps = pos.filter(p => p.supplierId === s.id);
     return [s.name, ps.length, sum(ps, p => p.qty), fmt(sum(ps, p => p.total)), pct(ps.filter(p => p.onTime).length, ps.length), `${s.rating} / 5`];
   });
-  const months = lastSixMonths();
+  const months = periodMonths();
   const byMonth = months.map(m => {
     const ps = pos.filter(p => p.date?.startsWith(m.key));
     return [m.label, ps.length, fmt(sum(ps, p => p.total))];
@@ -246,7 +264,7 @@ function financeReport() {
     return [s.name, `${s.paymentTerms} days`, fmt(sum(ps, p => p.total)), fmt(paid), fmt(sum(ps, p => p.total) - paid)];
   });
   const recvd = pos.filter(p => p.status === 'received');
-  const months = lastSixMonths();
+  const months = periodMonths();
   const cash = months.map(m => {
     const inflow = sum(lines.filter(l => l.month === m.key), l => l.paid);
     const outflow = sum(pos.filter(p => p.paid && p.date?.startsWith(m.key)), p => p.total);
@@ -283,7 +301,7 @@ function consolidatedReport() {
   const lines = salesLines(), jobs = serviceJobs(), pos = purchases();
   const revenue = sum(lines, l => l.total), purchased = sum(pos, p => p.total), fees = sum(jobs, j => j.fee);
   const stockValue = sum(PRODUCTS, p => p.stock * p.cost);
-  const months = lastSixMonths();
+  const months = periodMonths();
   const monthly = months.map(m => {
     const r = sum(lines.filter(l => l.month === m.key), l => l.total);
     const s = sum(jobs.filter(j => j.date?.startsWith(m.key)), j => j.fee);
@@ -334,7 +352,21 @@ function withAlign(report) {
   });
   return report;
 }
-export const buildReport = (type) => withAlign((REPORT_BUILDERS[type] || salesReport)());
+export function buildReport(type, range = null) {
+  RANGE = range && range.from && range.to ? range : null;
+  try {
+    const r = withAlign((REPORT_BUILDERS[type] || salesReport)());
+    r.period = RANGE ? `${RANGE.from} to ${RANGE.to}` : 'Last 6 months';
+    return r;
+  } finally { RANGE = null; }
+}
+// SD 7 / 18 / 26 / 52: a date range is valid when From <= To and To is not in the future
+export function validRange(from, to) {
+  if (!from && !to) return true;
+  if (!from || !to) return false;
+  const today = new Date().toISOString().slice(0, 10);
+  return from <= to && to <= today;
+}
 
 // CSV text: every section one after another
 export function reportToCSV(report) {

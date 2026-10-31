@@ -3,8 +3,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Plus, Search, CheckCircle, XCircle, AlertTriangle, RefreshCw, ArrowUpRight, PackageCheck, AlertOctagon } from 'lucide-react';
 import {
   RETURNS, COMPLAINTS, CUSTOMERS, PRODUCTS, SALES_ORDERS, PAYMENTS, STOCK_MOVEMENTS,
-  fmt, newRetId, newCmpId, newPayId, newSmId, getCustomer, getProduct, getSalesOrder, getWarrantyStatus
-} from '../data/mockData';
+  fmt, newRetId, newCmpId, newPayId, newSmId, getCustomer, getProduct, getSalesOrder, getWarrantyStatus,
+  SERVICE_JOBS, newJobId, APP_SETTINGS, today, newestFirst } from '../data/store';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
 import { format } from 'date-fns';
@@ -146,6 +146,13 @@ export default function ReturnsPage() {
   }, [location.state]); // eslint-disable-line react-hooks/exhaustive-deps
   const [modal, setModal] = useState(null);
   const [q, setQ] = useState('');
+  const [trackNo, setTrackNo] = useState('');
+  const [tracked, setTracked] = useState(null);   // SD 32 Track refund status
+  const save = (updated) => {
+    setReturns(rs => rs.map(r => r.id === updated.id ? updated : r));
+    const i = RETURNS.findIndex(r => r.id === updated.id);
+    if (i !== -1) RETURNS[i] = updated;
+  };
 
   const handleReturnSave = (form) => {
     const ret = {
@@ -172,28 +179,58 @@ export default function ReturnsPage() {
     setModal(null);
   };
 
+  // SD 10 approveRequest: the warranty is checked first; an expired warranty is rejected automatically
   const approveReturn = (ret, approved) => {
-    const updated = { ...ret, status: approved ? 'approved' : 'rejected', approvedBy: user?.id, resolvedAt: format(new Date(),'yyyy-MM-dd') };
+    const w = getWarrantyStatus(ret.productId, ret.salesOrderId);
+    const expired = w.known ? !w.valid : !ret.warrantyValid;
+    if (approved && expired) {
+      save({ ...ret, status:'rejected', approvedBy: user?.id, resolvedAt: today(), rejectReason:'Warranty expired' });
+      toast.error('Request rejected – warranty expired');
+      return;
+    }
+    const updated = { ...ret, status: approved ? 'approved' : 'rejected', approvedBy: user?.id, resolvedAt: today() };
     if (approved && ret.type === 'refund') {
       const so = SALES_ORDERS.find(o => o.id === ret.salesOrderId);
-      updated.refundAmount = so?.amountPaid || 0;
-      updated.refundStatus = 'pending';
+      const line = so?.items?.find(it => it.productId === ret.productId);
+      updated.refundAmount = line ? Math.round(line.total / (line.qty || 1)) : (so?.amountPaid || 0);
+      updated.refundStatus = 'awaiting-item';     // Sales sends it to Finance after the item comes back
     }
-    setReturns(rs => rs.map(r => r.id === ret.id ? updated : r));
-    const i = RETURNS.findIndex(r => r.id === ret.id);
-    if (i !== -1) RETURNS[i] = updated;
-    toast.success(`Request ${approved?'approved':'rejected'}`);
+    save(updated);
+    if (!approved) toast.success('Request rejected');
+    else toast.success(ret.type === 'refund' ? 'Request approved – refund authorised' : 'Request approved – exchange authorised');
   };
 
-  const processRefund = (ret) => {
-    const updated = { ...ret, refundStatus:'processed' };
-    const payment = { id: newPayId(), customerId: ret.customerId, salesOrderId: ret.salesOrderId, amount: ret.refundAmount, method:'transfer', date: format(new Date(),'yyyy-MM-dd'), recordedBy: user?.id, note:`Refund for ${ret.id}` };
-    PAYMENTS.push(payment);
-    setReturns(rs => rs.map(r => r.id === ret.id ? updated : r));
-    const i = RETURNS.findIndex(r => r.id === ret.id);
-    if (i !== -1) RETURNS[i] = updated;
-    toast.success(`Refund of ${fmt(ret.refundAmount)} processed`);
+  // SD 29 Process refund (Sales): only when the returned item has been received and inspected
+  const sendToFinance = (ret) => {
+    if (!ret.inventoryUpdated) { toast.warning('Waiting for the returned item'); return; }
+    save({ ...ret, refundStatus:'pending', sentToFinanceAt: today(), sentBy: user?.id });
+    toast.success(`Refund ${ret.id} sent to Finance`);
   };
+
+  // SD 54 Process approved refund payment (Finance): above the limit it needs Admin approval
+  const processRefund = (ret) => {
+    if (ret.refundAmount > APP_SETTINGS.refundApprovalLimit && !ret.adminApproved) {
+      save({ ...ret, refundStatus:'needs-admin' });
+      toast.warning(`Needs Admin approval – refund is above ${fmt(APP_SETTINGS.refundApprovalLimit)}`);
+      return;
+    }
+    const payment = { id: newPayId(), customerId: ret.customerId, salesOrderId: ret.salesOrderId, amount: ret.refundAmount, method:'transfer', date: today(), recordedBy: user?.id, note:`Refund for ${ret.id}`, type:'refund' };
+    PAYMENTS.push(payment);
+    save({ ...ret, refundStatus:'processed', refundPaidAt: today(), refundReceiptNo: payment.id, paidBy: user?.id });
+    toast.success(`Refund of ${fmt(ret.refundAmount)} paid – receipt ${payment.id}`);
+  };
+  const adminApproveRefund = (ret) => {
+    save({ ...ret, refundStatus:'pending', adminApproved: true, adminApprovedBy: user?.id });
+    toast.success(`Refund ${ret.id} approved by Admin – Finance can now pay it`);
+  };
+
+  // SD 32 trackRefund(refundNo)
+  const trackRefund = () => {
+    const r = RETURNS.find(x => x.id.toLowerCase() === trackNo.trim().toLowerCase() && x.type === 'refund');
+    if (!r) { setTracked({ none: true }); toast.error('No refund found for this number'); return; }
+    setTracked(r);
+  };
+  const REFUND_TEXT = { none:'not started', 'awaiting-item':'waiting for the returned item', pending:'with Finance', 'needs-admin':'waiting for Admin approval', processed:'paid' };
 
   const resolveComplaint = (cmp, resolution) => {
     const updated = { ...cmp, status:'resolved', resolution, resolvedAt: format(new Date(),'yyyy-MM-dd') };
@@ -232,6 +269,20 @@ export default function ReturnsPage() {
     setReturns(rs => rs.map(r => r.id === ret.id ? updated : r));
     const i = RETURNS.findIndex(r => r.id === ret.id);
     if (i !== -1) RETURNS[i] = updated;
+  };
+
+  // SD 11: an unresolved complaint can be escalated into a service job
+  const complaintToJob = (cmp) => {
+    const job = { id: newJobId(), customerId: cmp.customerId, productId: cmp.productId || '', serialNo:'', salesOrderId: cmp.salesOrderId || '',
+      type:'repair', priority:'urgent', description:`From complaint ${cmp.id}: ${cmp.subject} – ${cmp.description || ''}`, assignedTo:null,
+      warrantyValid:true, warrantyExpiry:'', serviceFee:0, billingStatus:'unbilled', visits:[], partsUsed:[], status:'pending',
+      complaintId: cmp.id, createdBy: user?.id, createdAt: today(), updatedAt: today(), completedAt:null };
+    SERVICE_JOBS.push(job);
+    const updated = { ...cmp, escalated: true, priority:'urgent', serviceJobId: job.id, status:'in-service' };
+    setComplaints(cs => cs.map(c => c.id === cmp.id ? updated : c));
+    const i = COMPLAINTS.findIndex(c => c.id === cmp.id);
+    if (i !== -1) COMPLAINTS[i] = updated;
+    toast.success(`Complaint escalated to service job ${job.id}`);
   };
 
   const escalateComplaint = (cmp) => {
@@ -277,6 +328,22 @@ export default function ReturnsPage() {
       </div>
 
       {activeTab === 'returns' && (
+        <div className="card" id="track-refund" style={{ marginBottom:16 }}>
+          <div className="card-body" style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+            <strong style={{ fontSize:13 }}>Track refund</strong>
+            <input id="track-refund-no" className="form-input" style={{ width:180 }} placeholder="Refund no. e.g. RET-001" value={trackNo}
+              onChange={e=>{ setTrackNo(e.target.value); setTracked(null); }} onKeyDown={e=>e.key==='Enter'&&trackRefund()} />
+            <button id="btn-track-refund" className="btn btn-outline btn-sm" disabled={!trackNo.trim()} onClick={trackRefund}>Track</button>
+            {tracked && (tracked.none
+              ? <span id="track-result" style={{ color:'var(--danger-400)', fontSize:13 }}>No refund found for this number</span>
+              : tracked.refundStatus === 'processed'
+                ? <span id="track-result" style={{ color:'var(--success-400)', fontSize:13 }}>Refund {tracked.id} paid on {tracked.refundPaidAt || tracked.resolvedAt} – receipt {tracked.refundReceiptNo || PAYMENTS.find(x => x.note === `Refund for ${tracked.id}`)?.id || 'on file'} – {fmt(tracked.refundAmount)}</span>
+                : <span id="track-result" style={{ color:'var(--warning-400)', fontSize:13 }}>Refund {tracked.id} is {tracked.status === 'rejected' ? 'rejected' : tracked.status === 'pending' ? 'waiting for approval' : REFUND_TEXT[tracked.refundStatus] || tracked.refundStatus} – not yet paid</span>)}
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'returns' && (
         <div className="table-container">
           <table className="table">
             <thead>
@@ -286,7 +353,7 @@ export default function ReturnsPage() {
               {filteredReturns.length === 0 && (
                 <tr><td colSpan={9}><div className="empty-state"><div className="empty-state-icon">🔄</div><div className="empty-state-title">No returns found</div></div></td></tr>
               )}
-              {filteredReturns.map(r => {
+              {newestFirst(filteredReturns, 'createdAt').map(r => {
                 const c = getCustomer(r.customerId);
                 const p = getProduct(r.productId);
                 return (
@@ -302,7 +369,7 @@ export default function ReturnsPage() {
                       {r.refundAmount > 0 ? (
                         <div>
                           <div style={{ fontSize:12, fontFamily:'var(--font-mono)', color:'var(--primary-300)' }}>{fmt(r.refundAmount)}</div>
-                          <span className={`badge badge-${r.refundStatus==='processed'?'success':'warning'}`} style={{ fontSize:10 }}>{r.refundStatus}</span>
+                          <span className={`badge badge-${r.refundStatus==='processed'?'success':r.refundStatus==='needs-admin'?'danger':'warning'}`} style={{ fontSize:10 }}>{r.refundStatus}</span>
                         </div>
                       ) : '—'}
                     </td>
@@ -323,9 +390,16 @@ export default function ReturnsPage() {
                         {r.inventoryUpdated && (
                           <span className="badge badge-gray" style={{ fontSize: 10 }}>{r.inspectionResult}</span>
                         )}
-                        {r.status === 'approved' && r.refundStatus === 'pending' && canDo('refund.pay') && (
-                          <button className="btn btn-primary btn-sm" onClick={() => processRefund(r)}>💳 Refund</button>
+                        {r.status === 'approved' && r.refundStatus === 'awaiting-item' && canDo('refund.send') && (
+                          <button id={`send-refund-${r.id}`} className="btn btn-outline btn-sm" onClick={() => sendToFinance(r)}>➡️ Send to Finance</button>
                         )}
+                        {r.status === 'approved' && r.refundStatus === 'pending' && canDo('refund.pay') && (
+                          <button id={`pay-refund-${r.id}`} className="btn btn-primary btn-sm" onClick={() => processRefund(r)}>💳 Refund</button>
+                        )}
+                        {r.refundStatus === 'needs-admin' && canDo('refund.adminApprove') && (
+                          <button id={`admin-refund-${r.id}`} className="btn btn-warning btn-sm" onClick={() => adminApproveRefund(r)}>Approve refund</button>
+                        )}
+                        {r.status === 'rejected' && r.rejectReason && <span className="badge badge-danger" style={{ fontSize:10 }}>{r.rejectReason}</span>}
                       </div>
                     </td>
                   </tr>
@@ -346,7 +420,7 @@ export default function ReturnsPage() {
               {filteredComplaints.length === 0 && (
                 <tr><td colSpan={7}><div className="empty-state"><div className="empty-state-icon">💬</div><div className="empty-state-title">No complaints found</div></div></td></tr>
               )}
-              {filteredComplaints.map(c => {
+              {newestFirst(filteredComplaints, 'createdAt').map(c => {
                 const cu = getCustomer(c.customerId);
                 return (
                   <tr key={c.id}>
@@ -373,6 +447,9 @@ export default function ReturnsPage() {
                                 <ArrowUpRight size={12}/> Escalate
                               </button>
                             )}
+                            {canDo('complaint.toServiceJob') && !c.serviceJobId && (
+                              <button id={`cmp-job-${c.id}`} className="btn btn-outline btn-sm" onClick={() => complaintToJob(c)} title="Create a service job for this complaint">🔧 To service job</button>
+                            )}
                             {canDo('complaint.resolve') && (
                               <button
                                 className="btn btn-success btn-sm"
@@ -383,6 +460,7 @@ export default function ReturnsPage() {
                             )}
                           </>
                         )}
+                        {c.serviceJobId && <span className="badge badge-primary" style={{ fontSize:10 }}>🔧 {c.serviceJobId}</span>}
                         {c.status === 'resolved' && <div style={{ fontSize:12, color:'var(--success-400)' }}>✅ {c.resolution?.slice(0,25)}</div>}
                       </div>
                     </td>

@@ -3,6 +3,8 @@
 // subtotals and a dark grand-total row, and the confidential footer.
 import { format } from 'date-fns';
 import './ReportSheet.css';
+import { APP_SETTINGS } from '../data/store';
+const company = () => (APP_SETTINGS.businessName || 'Rajida Holdings').replace(/ \(Pvt\) Ltd$/, '');
 
 export default function ReportSheet({ report, reportType, generatedBy }) {
   const now = new Date();
@@ -14,7 +16,7 @@ export default function ReportSheet({ report, reportType, generatedBy }) {
 
       <header className="rp-head">
         <div>
-          <div className="rp-company">Rajida Holdings</div>
+          <div className="rp-company">{company()}</div>
           <div className="rp-tagline">Computer Hardware, IT Parts &amp; Services</div>
         </div>
         <div className="rp-meta">
@@ -64,7 +66,7 @@ export default function ReportSheet({ report, reportType, generatedBy }) {
       ))}
 
       <footer className="rp-foot">
-        <span>Rajida Holdings · Confidential management report</span>
+        <span>{company()} · Confidential management report</span>
         <span>{reportId}</span>
       </footer>
     </div>

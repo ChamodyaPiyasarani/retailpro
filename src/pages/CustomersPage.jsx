@@ -1,12 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Search, Plus, Edit2, Phone, Mail, MapPin, CreditCard, History, Trash2, ShieldCheck } from 'lucide-react';
-import { CUSTOMERS, SALES_ORDERS, fmt, newCustId } from '../data/mockData';
+import { CUSTOMERS, SALES_ORDERS, SERVICE_JOBS, RETURNS, COMPLAINTS, CREDIT_REQUESTS, fmt, newCustId, newCreditReqId, isValidPhone, isValidEmail, today } from '../data/store';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
-import { canUseCustomerDb, loadCustomers, insertCustomer, updateCustomer, deleteCustomer, fromRow } from '../lib/customersDb';
 
-function CustomerModal({ customer, onClose, onSave, saving = false }) {
-  const [form, setForm] = useState(customer || { name:'', phone:'', email:'', address:'', creditLimit:50000 });
+function CustomerModal({ customer, onClose, onSave, saving = false, canSetLimit = true }) {
+  const [form, setForm] = useState(customer || { name:'', phone:'', email:'', address:'', creditLimit: canSetLimit ? 50000 : 0, creditRequest:false, requestedLimit:100000 });
+  const badPhone = form.phone && !isValidPhone(form.phone.replace(/\s/g, ''));
+  const badEmail = form.email && !isValidEmail(form.email);
   const set = (k,v) => setForm(f => ({ ...f, [k]:v }));
 
   return (
@@ -24,18 +25,32 @@ function CustomerModal({ customer, onClose, onSave, saving = false }) {
             </div>
             <div className="form-group">
               <label className="form-label">Phone *</label>
-              <input className="form-input" value={form.phone} onChange={e=>set('phone',e.target.value)} placeholder="077XXXXXXX" />
+              <input id="cust-phone" className="form-input" value={form.phone} onChange={e=>set('phone',e.target.value)} placeholder="077XXXXXXX" />
+              {badPhone && <div style={{ fontSize:11, color:'var(--danger-400)' }}>Use 10 digits starting with 0, or +94 and 9 digits</div>}
             </div>
           </div>
           <div className="form-row-2">
             <div className="form-group">
               <label className="form-label">Email</label>
-              <input className="form-input" type="email" value={form.email} onChange={e=>set('email',e.target.value)} placeholder="email@example.com" />
+              <input id="cust-email" className="form-input" type="email" value={form.email} onChange={e=>set('email',e.target.value)} placeholder="email@example.com" />
+              {badEmail && <div style={{ fontSize:11, color:'var(--danger-400)' }}>E-mail format is not valid</div>}
             </div>
-            <div className="form-group">
-              <label className="form-label">Credit Limit (LKR)</label>
-              <input className="form-input" type="number" value={form.creditLimit} onChange={e=>set('creditLimit',+e.target.value)} />
-            </div>
+            {canSetLimit ? (
+              <div className="form-group">
+                <label className="form-label">Credit Limit (LKR)</label>
+                <input className="form-input" type="number" value={form.creditLimit} onChange={e=>set('creditLimit',+e.target.value)} />
+              </div>
+            ) : !customer ? (
+              <div className="form-group">
+                <label className="form-label" style={{ display:'flex', gap:6, alignItems:'center' }}>
+                  <input id="cust-credit-request" type="checkbox" checked={form.creditRequest} onChange={e=>set('creditRequest',e.target.checked)} /> Request a credit account
+                </label>
+                {form.creditRequest && <input id="cust-requested-limit" className="form-input" type="number" min={0} value={form.requestedLimit} onChange={e=>set('requestedLimit',+e.target.value)} placeholder="Requested limit (LKR)" />}
+                <div style={{ fontSize:11, color:'var(--text-muted)' }}>Finance approves credit limits</div>
+              </div>
+            ) : (
+              <div className="form-group"><label className="form-label">Credit Limit</label><div style={{ fontSize:13 }}>{fmt(form.creditLimit)} (set by Finance)</div></div>
+            )}
           </div>
           <div className="form-group">
             <label className="form-label">Address</label>
@@ -44,7 +59,7 @@ function CustomerModal({ customer, onClose, onSave, saving = false }) {
         </div>
         <div className="modal-footer">
           <button className="btn btn-outline" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary" onClick={() => onSave(form)} disabled={!form.name || !form.phone || saving}>
+          <button id="btn-save-customer" className="btn btn-primary" onClick={() => onSave(form)} disabled={!form.name || !form.phone || saving}>
             {saving ? 'Saving…' : customer ? 'Save Changes' : 'Create Customer'}
           </button>
         </div>
@@ -67,45 +82,27 @@ export default function CustomersPage() {
     c.email?.toLowerCase().includes(q.toLowerCase())
   );
 
-  const useDb = canUseCustomerDb(user);
-  const [saving, setSaving] = useState(false);
-
-  // Keep the shared CUSTOMERS list (used by Sales, Payments, Reports …) the same as the screen
+  const saving = false;
   const syncGlobal = (list) => { CUSTOMERS.splice(0, CUSTOMERS.length, ...list); };
 
-  // Load customers from the database when signed in with a real account
-  useEffect(() => {
-    if (!useDb) return;
-    let alive = true;
-    loadCustomers(CUSTOMERS).then(res => {
-      if (!alive) return;
-      if (!res.ok) { toast.error(`Could not load customers: ${res.message}`); return; }
-      const list = res.rows.map(r => fromRow(r, CUSTOMERS.find(c => c.id === `C${String(r.customer_id).padStart(3, '0')}`)));
-      syncGlobal(list);
-      setCustomers([...list]);
-    });
-    return () => { alive = false; };
-  }, [useDb]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const handleSave = async (form) => {
-    if (useDb) {
-      setSaving(true);
-      const res = modal === 'new' ? await insertCustomer(form) : await updateCustomer(modal.dbId, form);
-      setSaving(false);
-      if (!res.ok) { toast.error(`Not saved: ${res.message}`); return; }
-      const saved = fromRow(res.row, modal === 'new' ? { creditLimit: form.creditLimit } : { ...modal, creditLimit: form.creditLimit });
-      const list = modal === 'new' ? [...customers, saved] : customers.map(c => (c.id === saved.id ? saved : c));
-      syncGlobal(list);
-      setCustomers(list);
-      toast.success(modal === 'new' ? `Customer ${saved.id} saved to the database` : `Customer ${saved.id} updated in the database`);
-      setModal(null);
-      return;
-    }
+  // SD 25: phone and e-mail are checked before saving; a credit request goes to Finance
+  const raiseCredit = (c, form) => {
+    if (modal !== 'new' || !form.creditRequest || !(form.requestedLimit > 0)) return '';
+    CREDIT_REQUESTS.push({ id: newCreditReqId(), customerId: c.id, currentLimit: c.creditLimit || 0, requestedLimit: form.requestedLimit,
+      requestDate: today(), status: 'pending', note: 'Requested at registration', requestedBy: user?.id });
+    return ' – credit request sent to Finance';
+  };
+  const handleSave = async (input) => {
+    const { creditRequest, requestedLimit, ...form } = input;
+    form.phone = (form.phone || '').replace(/\s/g, '');
+    if (!isValidPhone(form.phone) || (form.email && !isValidEmail(form.email))) { toast.error('Invalid phone number or e-mail'); return; }
+    if (modal === 'new' && customers.some(c => c.phone === form.phone)) { toast.error('A customer with this phone number already exists'); return; }
+    const req = { creditRequest, requestedLimit };
     if (modal === 'new') {
-      const newC = { ...form, id: newCustId(), creditUsed:0, balance:0, createdAt: new Date().toISOString().slice(0,10) };
+      const newC = { ...form, id: newCustId(), creditLimit: form.creditLimit || 0, creditUsed:0, balance:0, createdAt: new Date().toISOString().slice(0,10) };
       setCustomers(cs => [...cs, newC]);
       CUSTOMERS.push(newC);
-      toast.success('Customer created successfully');
+      toast.success(`New customer registered – ${newC.id}${raiseCredit(newC, req)}`);
     } else {
       setCustomers(cs => cs.map(c => c.id === modal.id ? { ...c, ...form } : c));
       const i = CUSTOMERS.findIndex(c => c.id === modal.id);
@@ -117,10 +114,10 @@ export default function CustomersPage() {
 
   const handleDelete = async (c) => {
     if (!confirm(`Are you sure you want to delete customer ${c.name}?`)) return;
-    if (useDb && c.dbId) {
-      const res = await deleteCustomer(c.dbId);
-      if (!res.ok) { toast.error(res.message); return; }
-    }
+    // a customer with sales, jobs, returns or complaints is kept (the database links them)
+    const used = SALES_ORDERS.some(o => o.customerId === c.id) || SERVICE_JOBS.some(j => j.customerId === c.id) ||
+      RETURNS.some(r => r.customerId === c.id) || COMPLAINTS.some(x => x.customerId === c.id);
+    if (used) { toast.error('This customer has sales or other records, so it cannot be deleted.'); return; }
     const list = customers.filter(x => x.id !== c.id);
     syncGlobal(list);
     setCustomers(list);
@@ -138,7 +135,7 @@ export default function CustomersPage() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Customers</h1>
-          <p className="page-subtitle">{customers.length} registered customers{useDb ? ' · saved in the database' : ''}</p>
+          <p className="page-subtitle">{customers.length} registered customers</p>
         </div>
         <div className="page-header-actions">
           {canDo('customer.add') && (
@@ -224,7 +221,7 @@ export default function CustomersPage() {
       </div>
 
       {/* Modal */}
-      {modal && <CustomerModal customer={modal === 'new' ? null : modal} onClose={() => setModal(null)} onSave={handleSave} saving={saving} />}
+      {modal && <CustomerModal customer={modal === 'new' ? null : modal} onClose={() => setModal(null)} onSave={handleSave} saving={saving} canSetLimit={canDo('credit.approve') || user?.role === 'admin'} />}
 
       {/* Detail Drawer */}
       {detail && (

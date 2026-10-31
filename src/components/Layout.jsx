@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Users, Settings, ShoppingCart, Package, Warehouse,
@@ -8,7 +8,19 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
-import { getLowStockProducts, getOverduePOs, getOutstandingInvoices } from '../data/mockData';
+import { getLowStockProducts, getOverduePOs, getOutstandingInvoices } from '../data/store';
+import { onSyncStatus } from '../lib/db/sync';
+
+// Shows whether the latest changes are saved in the Supabase database
+function SaveStatus() {
+  const [st, setSt] = useState({ state: 'idle' });
+  useEffect(() => onSyncStatus(setSt), []);
+  if (st.state === 'idle') return null;
+  const look = { saved: ['var(--success-400)', '☁️ Saved'], saving: ['var(--warning-400)', '⏳ Saving…'], loading: ['var(--warning-400)', '⏳ Loading…'], error: ['var(--danger-400)', '⚠️ Not saved'] }[st.state] || ['var(--text-muted)', ''];
+  return (
+    <span id="db-save-status" title={st.message} style={{ fontSize: 12, fontWeight: 600, color: look[0], whiteSpace: 'nowrap', marginRight: 6 }}>{look[1]}</span>
+  );
+}
 
 const NAV_SECTIONS = [
   {
@@ -227,6 +239,7 @@ export default function Layout({ children }) {
           )}
 
           <div className="topbar-actions">
+            <SaveStatus />
             {/* Theme Toggle Button (Light / Dark) */}
             <button
               className="btn btn-ghost btn-icon"

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Search, Plus, CheckCircle, AlertTriangle, Package, Edit2, FileText } from 'lucide-react';
-import { SUPPLIERS, PURCHASE_ORDERS, PRODUCTS, STOCK_MOVEMENTS, QUOTATIONS, RETURNS, fmt, newPoId, newSmId, newQuoteId, getSupplier } from '../data/mockData';
+import { SUPPLIERS, PURCHASE_ORDERS, PRODUCTS, STOCK_MOVEMENTS, QUOTATIONS, RETURNS, APP_SETTINGS, fmt, newPoId, newSmId, newQuoteId, getSupplier, today, newestFirst } from '../data/store';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
 import { format, addDays } from 'date-fns';
@@ -34,6 +34,18 @@ function POModal({ po, onClose, onSave }) {
   };
 
   const grandTotal = lines.reduce((s,l) => s + l.qty*l.unitCost, 0);
+  // SD 39: choosing a quotation checks it is still valid, then applies the quoted price to the lines
+  const pickQuote = (qt) => {
+    if (qt.validUntil < today()) { toast.error('Quotation has expired – request a new quotation'); return; }
+    setQuotationId(qt.id);
+    if (qt.quotedTotal > 0 && lines.length) {
+      const base = lines.reduce((s,l) => s + l.qty*l.unitCost, 0) || 1;
+      const f = qt.quotedTotal / base;
+      setLines(ls => ls.map(l => { const unitCost = Math.round(l.unitCost * f); return { ...l, unitCost, total: unitCost * l.qty }; }));
+    }
+    toast.success(`Quotation ${qt.id} accepted – price applied`);
+  };
+  const overBudget = grandTotal > APP_SETTINGS.purchaseBudgetLimit;
 
   return (
     <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&onClose()}>
@@ -48,7 +60,7 @@ function POModal({ po, onClose, onSave }) {
               <label className="form-label">Supplier *</label>
               <select id="po-supplier" className="form-select" value={supplierId} onChange={e=>{ setSupplierId(e.target.value); setQuotationId(''); }}>
                 <option value="">Select supplier…</option>
-                {SUPPLIERS.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+                {SUPPLIERS.filter(s => s.status !== 'inactive' || s.id === po?.supplierId).map(s=><option key={s.id} value={s.id}>{s.name}{s.status === 'inactive' ? ' (inactive)' : ''}</option>)}
               </select>
             </div>
             <div className="form-group">
@@ -67,7 +79,8 @@ function POModal({ po, onClose, onSave }) {
               {supplierQuotes.length === 0 && <div style={{ fontSize:12, color:'var(--text-muted)' }}>No quotations from this supplier yet.</div>}
               {supplierQuotes.map(q => (
                 <label key={q.id} style={{ display:'flex', alignItems:'center', gap:8, fontSize:13, padding:'4px 0', cursor: q.status === 'requested' ? 'not-allowed' : 'pointer' }}>
-                  <input type="radio" name="po-quote" checked={quotationId === q.id} disabled={q.status === 'requested'} onChange={() => setQuotationId(q.id)} />
+                  <input id={`po-quote-${q.id}`} type="radio" name="po-quote" checked={quotationId === q.id} disabled={q.status === 'requested'} onChange={() => pickQuote(q)} />
+                  {q.validUntil < today() && <span className="badge badge-danger">expired</span>}
                   <span style={{ fontFamily:'var(--font-mono)' }}>{q.id}</span>
                   <span className={`badge badge-${q.status === 'requested' ? 'gray' : q.status === 'accepted' ? 'success' : 'primary'}`}>{q.status}</span>
                   <span style={{ color:'var(--text-muted)' }}>{q.quotedTotal ? fmt(q.quotedTotal) : 'awaiting price'} · valid until {q.validUntil}</span>
@@ -113,10 +126,12 @@ function POModal({ po, onClose, onSave }) {
               Grand Total: {fmt(grandTotal)}
             </div>
           )}
+          {overBudget && <div id="po-over-budget" className="alert alert-danger">Order exceeds your budget limit ({fmt(APP_SETTINGS.purchaseBudgetLimit)})</div>}
+          {!overBudget && grandTotal > APP_SETTINGS.poApprovalLimit && <div className="alert alert-warning" style={{ fontSize:12 }}>Above {fmt(APP_SETTINGS.poApprovalLimit)} – approval will be escalated to management</div>}
         </div>
         <div className="modal-footer">
           <button className="btn btn-outline" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary" disabled={!supplierId || lines.length === 0} onClick={() => onSave({ supplierId, expectedDate, lines, grandTotal, quotationId: quotationId || null, urgent })}>
+          <button id="po-save" className="btn btn-primary" disabled={!supplierId || lines.length === 0} onClick={() => overBudget ? toast.error('Order exceeds your budget limit') : onSave({ supplierId, expectedDate, lines, grandTotal, quotationId: quotationId || null, urgent })}>
             {po?.id ? 'Update PO' : 'Create PO'}
           </button>
         </div>
@@ -126,8 +141,8 @@ function POModal({ po, onClose, onSave }) {
 }
 
 function ReceiveModal({ po, onClose, onSave }) {
-  const [lines, setLines] = useState(po.items.map(i => ({ ...i, received: i.qty })));
-  const hasDiscrepancy = lines.some(l => l.received !== l.qty);
+  const [lines, setLines] = useState(po.items.map(i => ({ ...i, received: i.qty - (i.receivedQty || 0) })));
+  const hasDiscrepancy = lines.some(l => l.received !== l.qty - (l.receivedQty || 0));
   return (
     <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&onClose()}>
       <div className="modal modal-lg">
@@ -146,7 +161,7 @@ function ReceiveModal({ po, onClose, onSave }) {
                 {lines.map((l,i) => (
                   <tr key={i}>
                     <td>{l.name}</td>
-                    <td>{l.qty}</td>
+                    <td>{l.qty - (l.receivedQty || 0)}</td>
                     <td>
                       <input type="number" className="form-input" value={l.received} min={0}
                         onChange={e => setLines(ls => ls.map((x,j) => j===i ? {...x,received:+e.target.value} : x))}
@@ -154,8 +169,8 @@ function ReceiveModal({ po, onClose, onSave }) {
                       />
                     </td>
                     <td>
-                      {l.received !== l.qty
-                        ? <span className="badge badge-warning">Δ {l.received - l.qty}</span>
+                      {l.received !== l.qty - (l.receivedQty || 0)
+                        ? <span className="badge badge-warning">Δ {l.received - (l.qty - (l.receivedQty || 0))}</span>
                         : <span className="badge badge-success">✓ Match</span>
                       }
                     </td>
@@ -180,7 +195,8 @@ export default function PurchaseOrdersPage() {
   const toast = useToast();
   const { user, canDo } = useAuth();
   // Show the Actions column only to roles that can approve, edit or receive purchase orders
-  const showActions = canDo('po.approve') || canDo('po.edit') || canDo('po.receive');
+  const showActions = canDo('po.approve') || canDo('po.edit') || canDo('po.receive') || canDo('po.remind') || canDo('po.approveEscalated');
+  const [quotePrice, setQuotePrice] = useState({});
   const [orders, setOrders] = useState(() => [...PURCHASE_ORDERS]);
   const [q, setQ] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -204,7 +220,7 @@ export default function PurchaseOrdersPage() {
   });
 
   const statusBadge = (s) => {
-    const map = { draft:'gray', approved:'primary', ordered:'accent', received:'success', cancelled:'danger' };
+    const map = { draft:'gray', approved:'primary', ordered:'accent', partial:'warning', escalated:'warning', received:'success', cancelled:'danger', flagged:'danger' };
     return <span className={`badge badge-${map[s]||'gray'}`}>{s.charAt(0).toUpperCase()+s.slice(1)}</span>;
   };
 
@@ -235,10 +251,31 @@ export default function PurchaseOrdersPage() {
     setModal(null);
   };
 
-  // Approve / update purchase details
+  // SD 41 Approve / update purchase details: above the approval limit the order goes to management
   const approveOrder = (po) => {
-    saveOrder({ ...po, status: 'approved', approvedBy: user?.id, approvedDate: format(new Date(),'yyyy-MM-dd') });
-    toast.success(`${po.id} approved`);
+    if (po.status === 'draft' && po.grandTotal > APP_SETTINGS.poApprovalLimit) {
+      saveOrder({ ...po, status: 'escalated', escalatedBy: user?.id, escalatedDate: today() });
+      toast.warning(`Order ${po.id} escalated to management`);
+      return;
+    }
+    saveOrder({ ...po, status: 'approved', approvedBy: user?.id, approvedDate: today() });
+    toast.success(po.status === 'escalated' ? `${po.id} approved by management` : `${po.id} approved`);
+  };
+
+  // SD 40 Track purchase order status: send a delivery reminder to the supplier
+  const remindSupplier = (po) => {
+    const sup = getSupplier(po.supplierId);
+    saveOrder({ ...po, reminders: [...(po.reminders || []), { date: today(), by: user?.id }] });
+    toast.success(`Delivery reminder sent to supplier ${sup?.name}${sup?.email ? ` (${sup.email})` : ''}`);
+  };
+
+  // SD 39: enter the price a supplier quoted
+  const saveQuotePrice = (qt) => {
+    const v = Number(quotePrice[qt.id]);
+    if (!(v > 0)) { toast.error('Enter the quoted price'); return; }
+    qt.quotedTotal = v; qt.status = 'received'; qt.receivedDate = today();
+    setQuotePrice(p => ({ ...p, [qt.id]: '' }));
+    toast.success(`Quoted price saved for ${qt.id}`);
   };
 
   // Reorder stock for frequently exchanged products
@@ -253,11 +290,21 @@ export default function PurchaseOrdersPage() {
       items: [{ productId: p.id, name: p.name, qty, unitCost: p.cost, total: qty * p.cost }] });
   };
 
+  // SD 42 Receive goods: a delivery that does not match the order is flagged and not received
   const handleReceive = (receivedLines) => {
     const today = format(new Date(),'yyyy-MM-dd');
-    setOrders(os => os.map(o => o.id === receiving.id ? { ...o, status:'received', receivedDate:today, payableStatus:'pending', items: receivedLines } : o));
+    const mismatch = receivedLines.filter(l => l.received !== l.qty - (l.receivedQty || 0));
+    if (mismatch.length) {
+      const flagged = { ...receiving, status:'flagged', flagNote: mismatch.map(l => `${l.name}: expected ${l.qty - (l.receivedQty || 0)}, delivered ${l.received}`).join('; '), flaggedDate: today };
+      saveOrder(flagged);
+      toast.error('Delivery does not match the order – flagged');
+      setReceiving(null);
+      return;
+    }
+    const items = receivedLines.map(({ received, ...it }) => ({ ...it, receivedQty: it.qty }));
+    setOrders(os => os.map(o => o.id === receiving.id ? { ...o, status:'received', receivedDate:today, payableStatus:'pending', items } : o));
     const poi = PURCHASE_ORDERS.findIndex(o => o.id === receiving.id);
-    if (poi !== -1) { PURCHASE_ORDERS[poi].status = 'received'; PURCHASE_ORDERS[poi].receivedDate = today; PURCHASE_ORDERS[poi].payableStatus = 'pending'; }
+    if (poi !== -1) { Object.assign(PURCHASE_ORDERS[poi], { status:'received', receivedDate: today, payableStatus:'pending', items }); }
 
     // Update stock
     receivedLines.forEach(l => {
@@ -268,7 +315,7 @@ export default function PurchaseOrdersPage() {
       }
     });
 
-    toast.success(`Goods received for ${receiving.id} — stock updated`);
+    toast.success(`Stock received and payable created for ${receiving.id}`);
     setReceiving(null);
   };
 
@@ -316,16 +363,21 @@ export default function PurchaseOrdersPage() {
       {tab === 'quotes' && (
         <div className="table-container">
           <table className="table">
-            <thead><tr><th>Quotation</th><th>Supplier</th><th>Requested</th><th>Valid until</th><th>Quoted total</th><th>Status</th></tr></thead>
+            <thead><tr><th>Quotation</th><th>Supplier</th><th>Requested</th><th>Valid until</th><th>Quoted total</th><th>Status</th>{canDo('quote.price') && <th>Enter price</th>}</tr></thead>
             <tbody>
-              {QUOTATIONS.map(qt => (
+              {newestFirst(QUOTATIONS, 'requestDate').map(qt => (
                 <tr key={qt.id}>
                   <td style={{ fontFamily:'var(--font-mono)', fontWeight:700 }}>{qt.id}</td>
                   <td>{getSupplier(qt.supplierId)?.name}<div style={{ fontSize:12, color:'var(--text-muted)' }}>{qt.note}</div></td>
                   <td style={{ fontSize:13 }}>{qt.requestDate}</td>
                   <td style={{ fontSize:13 }}>{qt.validUntil}</td>
                   <td style={{ fontFamily:'var(--font-mono)' }}>{qt.quotedTotal ? fmt(qt.quotedTotal) : '—'}</td>
-                  <td><span className={`badge badge-${qt.status === 'requested' ? 'gray' : qt.status === 'accepted' ? 'success' : 'primary'}`}>{qt.status}</span></td>
+                  <td><span className={`badge badge-${qt.status === 'requested' ? 'gray' : qt.status === 'accepted' ? 'success' : 'primary'}`}>{qt.status}</span>{qt.validUntil < today() && qt.status !== 'accepted' && <span className="badge badge-danger" style={{ marginLeft:4 }}>expired</span>}</td>
+                  {canDo('quote.price') && <td>{qt.status === 'requested' && (
+                    <div style={{ display:'flex', gap:6 }}>
+                      <input id={`quote-price-${qt.id}`} type="number" min={0} className="form-input" style={{ width:120 }} value={quotePrice[qt.id] || ''} onChange={e => setQuotePrice(p => ({ ...p, [qt.id]: e.target.value }))} placeholder="LKR" />
+                      <button id={`quote-save-${qt.id}`} className="btn btn-outline btn-sm" onClick={() => saveQuotePrice(qt)}>Save</button>
+                    </div>)}</td>}
                 </tr>
               ))}
             </tbody>
@@ -343,8 +395,12 @@ export default function PurchaseOrdersPage() {
           <option value="all">All Statuses</option>
           <option value="draft">Draft</option>
           <option value="approved">Approved</option>
+          <option value="escalated">Escalated</option>
           <option value="ordered">Ordered</option>
+          <option value="partial">Partly received</option>
+          <option value="flagged">Flagged</option>
           <option value="received">Received</option>
+          <option value="cancelled">Cancelled</option>
         </select>
       </div>
 
@@ -355,9 +411,9 @@ export default function PurchaseOrdersPage() {
           </thead>
           <tbody>
             {filtered.length === 0 && (
-              <tr><td colSpan={showActions ? 8 : 7}><div className="empty-state"><div className="empty-state-icon">📋</div><div className="empty-state-title">No purchase orders</div></div></td></tr>
+              <tr><td colSpan={showActions ? 8 : 7}><div className="empty-state"><div className="empty-state-icon">📋</div><div id="po-empty" className="empty-state-title">{statusFilter !== 'all' || q ? 'No purchase orders for this filter' : 'No purchase orders'}</div></div></td></tr>
             )}
-            {filtered.map(po => {
+            {newestFirst(filtered).map(po => {
               const sup = SUPPLIERS.find(s=>s.id===po.supplierId);
               const overdue = isOverdue(po);
               return (
@@ -370,6 +426,8 @@ export default function PurchaseOrdersPage() {
                     {overdue && <div style={{ fontSize:11, color:'var(--danger-400)' }}>Overdue!</div>}
                     {po.urgent && <span className="badge badge-danger" style={{ fontSize:10 }}>Urgent</span>}
                     {po.quotationId && <div style={{ fontSize:11, color:'var(--text-muted)' }}>Quote {po.quotationId}</div>}
+                    {po.flagNote && <div style={{ fontSize:11, color:'var(--danger-400)' }}>{po.flagNote}</div>}
+                    {po.reminders?.length > 0 && <div style={{ fontSize:11, color:'var(--text-muted)' }}>Reminded {po.reminders[po.reminders.length-1].date}</div>}
                   </td>
                   <td>
                     <div style={{ fontWeight:600 }}>{sup?.name}</div>
@@ -396,7 +454,15 @@ export default function PurchaseOrdersPage() {
                           <Edit2 size={13}/>
                         </button>
                       )}
-                      {(po.status === 'approved' || po.status === 'ordered') && canDo('po.receive') && (
+                      {po.status === 'escalated' && canDo('po.approveEscalated') && (
+                        <button id={`po-approve-esc-${po.id}`} className="btn btn-warning btn-sm" onClick={() => approveOrder(po)}>
+                          <CheckCircle size={13}/> Approve (management)
+                        </button>
+                      )}
+                      {['approved', 'ordered', 'partial'].includes(po.status) && canDo('po.remind') && (
+                        <button id={`po-remind-${po.id}`} className="btn btn-outline btn-sm" onClick={() => remindSupplier(po)}>🔔 Remind</button>
+                      )}
+                      {['approved', 'ordered', 'flagged'].includes(po.status) && canDo('po.receive') && (
                         <button id={`po-receive-${po.id}`} className="btn btn-success btn-sm" onClick={() => setReceiving(po)}>
                           <Package size={13}/> Receive
                         </button>

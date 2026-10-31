@@ -1,0 +1,51 @@
+# User management & reporting: user, role, permission, role_permission, system_setting, report, audit_log
+@url = {{$dotenv SUPABASE_URL}}
+@key = {{$dotenv SUPABASE_ANON_KEY}}
+@token = {{login.response.body.$.access_token}}
+
+### 0) Sign in first (click "Send Request" here) – the other requests use this token
+# @name login
+POST {{url}}/auth/v1/token?grant_type=password
+apikey: {{key}}
+Content-Type: application/json
+
+{ "email": "{{$dotenv TEST_EMAIL}}", "password": "{{$dotenv TEST_PASSWORD}}" }
+
+### 1) Staff accounts with role
+GET {{url}}/rest/v1/user?select=user_id,full_name,email,user_type,is_active,is_locked,last_login_at,role(role_name)&order=full_name
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 2) Roles
+GET {{url}}/rest/v1/role?select=*&order=role_id
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 3) Pages and buttons each role may use
+GET {{url}}/rest/v1/role_permission?select=granted_date,access_type,role(role_name),permission(permission_name,module,action)
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 4) System settings (limits, tax, warranty policy)
+GET {{url}}/rest/v1/system_setting?select=setting_key,setting_value,category&order=setting_id
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 5) UPDATE one setting (example: tax rate 15 %)
+PATCH {{url}}/rest/v1/system_setting?setting_key=eq.taxRate
+apikey: {{key}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Prefer: return=representation
+
+{ "setting_value": "15" }
+
+### 6) Scheduled reports
+GET {{url}}/rest/v1/report?select=*&report_type=neq.reconciliation
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 7) Audit log – last 20 actions with the user
+GET {{url}}/rest/v1/audit_log?select=audit_id,action,detail,logged_at,user(full_name)&order=logged_at.desc&limit=20
+apikey: {{key}}
+Authorization: Bearer {{token}}

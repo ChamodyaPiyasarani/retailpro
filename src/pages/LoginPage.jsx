@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, LogIn, KeyRound } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import { USERS, ROLES } from '../data/mockData';
+import { DEMO_ACCOUNTS } from '../config/demoAccounts';
 
 function ResetPasswordModal({ onClose, onReset, emailOnly }) {
   const [email, setEmail] = useState('');
@@ -136,7 +136,7 @@ export default function LoginPage() {
         <h1 className="login-simple-title">Rajida Holdings</h1>
         <p className="login-simple-subtitle">Inventory, Sales &amp; Purchase System</p>
         <div className={`login-mode ${authMode}`}>
-          {authMode === 'supabase' ? 'Signing in with Supabase' : 'Demo mode (sample data)'}
+          {authMode === 'supabase' ? 'Signing in with Supabase' : 'Database not connected – add the Supabase keys to .env'}
         </div>
 
         <div className="form-group">
@@ -198,9 +198,10 @@ export default function LoginPage() {
         <div className="login-demo">
           <div className="login-demo-title">Demo accounts — click to fill in</div>
           <div className="login-demo-list">
-            {USERS.filter(u => u.active).map(u => (
+            {DEMO_ACCOUNTS.map(u => (
               <button
-                key={u.id}
+                key={u.email}
+                id={`demo-${u.email.split('@')[0]}`}
                 type="button"
                 className={`login-demo-user ${email === u.email ? 'active' : ''}`}
                 onClick={() => fillUser(u)}
@@ -208,7 +209,7 @@ export default function LoginPage() {
               >
                 <span className="login-demo-avatar">{u.avatar}</span>
                 <span className="login-demo-text">
-                  <span className="login-demo-role">{ROLES[u.role]?.label || u.role}</span>
+                  <span className="login-demo-role">{u.label}</span>
                   <span className="login-demo-email">{u.email}</span>
                 </span>
               </button>

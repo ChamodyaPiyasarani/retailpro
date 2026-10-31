@@ -6,14 +6,13 @@ import {
 import { Download, FileText, Printer, CheckCircle, AlertTriangle, TrendingUp, DollarSign } from 'lucide-react';
 import {
   SALES_ORDERS, SERVICE_JOBS, PRODUCTS, PURCHASE_ORDERS, PAYMENTS,
-  CUSTOMERS, SUPPLIERS, CATEGORIES, REPORT_SCHEDULES, RETURNS, fmt, getLowStockProducts, getCustomer, getProduct, getUser
-} from '../data/mockData';
+  CUSTOMERS, SUPPLIERS, CATEGORIES, REPORT_SCHEDULES, RETURNS, fmt, getLowStockProducts, getCustomer, getProduct, getUser, newScheduleId } from '../data/store';
 import { format, subMonths } from 'date-fns';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
 import { generateStructuredPDF } from '../utils/pdfGenerator';
 import ReportSheet from '../components/ReportSheet';
-import { buildReport, reportToCSV, salesLines, serviceJobs, purchases } from '../utils/reportBuilder';
+import { buildReport, validRange, reportToCSV, salesLines, serviceJobs, purchases } from '../utils/reportBuilder';
 import { lastSixMonths, sum } from '../data/reportData';
 
 const COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#6366f1'];
@@ -64,11 +63,13 @@ export default function ReportsPage() {
   const allowedTypes = REPORT_TYPES[user?.role] || ['sales'];
   const [reportType, setReportType] = useState(allowedTypes[0]);
   const [schedules, setSchedules] = useState(() => [...REPORT_SCHEDULES]);
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
   const [newSchedule, setNewSchedule] = useState({ type: allowedTypes[0], frequency: 'weekly', recipients: user?.email || '' });
 
   // Schedule automated report
   const addSchedule = () => {
-    const rs = { id: `RS${String(REPORT_SCHEDULES.length + 1).padStart(3, '0')}`, type: newSchedule.type, frequency: newSchedule.frequency,
+    const rs = { id: newScheduleId(), type: newSchedule.type, frequency: newSchedule.frequency,
       recipients: newSchedule.recipients.split(',').map(r => r.trim()).filter(Boolean), active: true, lastRun: null, createdBy: user?.id };
     REPORT_SCHEDULES.push(rs);
     setSchedules([...REPORT_SCHEDULES]);
@@ -86,7 +87,11 @@ export default function ReportsPage() {
   const totalCost = sum(purchases().filter(p => p.status === 'received'), p => p.total);
   const grossProfit = sum(allLines, l => l.total - l.unitCost * l.qty);
   const profitMargin = totalRevenue > 0 ? ((grossProfit / totalRevenue) * 100).toFixed(1) : 0;
-  const report = buildReport(reportType);
+  const rangeOk = validRange(from, to);
+  // SD 7/18/26/52: stock and financial reports talk about a "period", the others a "date range"
+  const rangeMsg = ['stock', 'finance'].includes(reportType) ? 'Please select a valid period' : 'Please select a valid date range';
+  const report = buildReport(reportType, rangeOk && from && to ? { from, to } : null);
+  const guard = (fn) => () => { if (!rangeOk) { toast.error(rangeMsg); return; } fn(); };
 
   // Grouped PDF report
   const exportPDF = () => {
@@ -139,22 +144,39 @@ export default function ReportsPage() {
             {allowedTypes.map(t => <option key={t} value={t}>{REPORT_LABELS[t]}</option>)}
           </select>
 
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>From
+            <input id="report-from" type="date" className="form-input" value={from} onChange={e => setFrom(e.target.value)} style={{ width: 150 }} />
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>To
+            <input id="report-to" type="date" className="form-input" value={to} onChange={e => setTo(e.target.value)} style={{ width: 150 }} />
+          </label>
+          {(from || to) && <button id="btn-clear-range" className="btn btn-outline btn-sm" onClick={() => { setFrom(''); setTo(''); }}>Clear</button>}
+
           {/* Download as Structured PDF Button */}
-          <button id="btn-export-pdf" className="btn btn-primary" onClick={exportPDF}>
+          <button id="btn-export-pdf" className="btn btn-primary" onClick={guard(exportPDF)}>
             <FileText size={15} /> Download PDF
           </button>
 
           {/* Quick Print Button */}
-          <button id="btn-print-report" className="btn btn-outline" onClick={printReport}>
+          <button id="btn-print-report" className="btn btn-outline" onClick={guard(printReport)}>
             <Printer size={15} /> Print
           </button>
 
           {/* Export CSV Button */}
-          <button id="btn-export-csv" className="btn btn-outline" onClick={exportCSV}>
+          <button id="btn-export-csv" className="btn btn-outline" onClick={guard(exportCSV)}>
             <Download size={15} /> CSV
           </button>
         </div>
       </div>
+
+      {!rangeOk && (
+        <div id="range-error" className="alert alert-danger" style={{ marginBottom: 16 }}>
+          <AlertTriangle size={16} /> {rangeMsg}. "From" must be on or before "To", and "To" cannot be in the future.
+        </div>
+      )}
+      {rangeOk && from && to && (
+        <div id="range-info" className="alert alert-info" style={{ marginBottom: 16 }}>Showing {REPORT_LABELS[reportType]} for {from} to {to}</div>
+      )}
 
       {/* Scheduled reports (Schedule automated report) */}
       {canDo('report.schedule') && (

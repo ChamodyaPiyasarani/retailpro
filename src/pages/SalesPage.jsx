@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { SALES_ORDERS, CUSTOMERS, PRODUCTS, fmt, getCustomer } from '../data/mockData';
+import { SALES_ORDERS, CUSTOMERS, PRODUCTS, fmt, getCustomer, newestFirst } from '../data/store';
 import { Search, Eye } from 'lucide-react';
 
 export default function SalesPage() {
@@ -48,7 +48,7 @@ export default function SalesPage() {
             {filtered.length === 0 && (
               <tr><td colSpan={9}><div className="empty-state"><div className="empty-state-icon">🛒</div><div className="empty-state-title">No orders found</div></div></td></tr>
             )}
-            {filtered.map(o => {
+            {newestFirst(filtered).map(o => {
               const c = getCustomer(o.customerId);
               return (
                 <tr key={o.id}>

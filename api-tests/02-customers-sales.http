@@ -1,0 +1,82 @@
+# Sales module: customer, credit_account, sales_order, sales_order_item, invoice, discount, warranty_record
+@url = {{$dotenv SUPABASE_URL}}
+@key = {{$dotenv SUPABASE_ANON_KEY}}
+@token = {{login.response.body.$.access_token}}
+
+### 0) Sign in first (click "Send Request" here) – the other requests use this token
+# @name login
+POST {{url}}/auth/v1/token?grant_type=password
+apikey: {{key}}
+Content-Type: application/json
+
+{ "email": "{{$dotenv TEST_EMAIL}}", "password": "{{$dotenv TEST_PASSWORD}}" }
+
+### 1) All customers
+GET {{url}}/rest/v1/customer?select=*&order=customer_id
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 2) Find a customer by phone
+GET {{url}}/rest/v1/customer?phone=eq.0771234567
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 3) Credit accounts (account_id = customer number) and credit requests (account_id 1001, 1002 …)
+GET {{url}}/rest/v1/credit_account?select=account_id,credit_limit,current_balance,requested_limit,status,customer(name)&order=account_id
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 4) CREATE a test customer
+POST {{url}}/rest/v1/customer
+apikey: {{key}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Prefer: return=representation
+
+{ "name": "API Test Customer", "phone": "0700000001", "email": "api.test@example.com", "address": "Colombo", "customer_type": "retail", "registered_date": "2026-11-01" }
+
+### 5) UPDATE the test customer address
+PATCH {{url}}/rest/v1/customer?phone=eq.0700000001
+apikey: {{key}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Prefer: return=representation
+
+{ "address": "No. 10, Kandy Road, Kiribathgoda" }
+
+### 6) DELETE the test customer
+DELETE {{url}}/rest/v1/customer?phone=eq.0700000001
+apikey: {{key}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Prefer: return=representation
+
+### 7) Last 10 sales orders with customer and lines
+GET {{url}}/rest/v1/sales_order?select=sales_order_id,order_date,total_amount,amount_paid,payment_type,status,customer(name),sales_order_item(quantity,unit_price,line_discount,product(name))&order=sales_order_id.desc&limit=10
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 8) One sales order (SO-062 = sales_order_id 62) with its invoice
+GET {{url}}/rest/v1/sales_order?select=*,invoice(*),sales_order_item(*)&sales_order_id=eq.62
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 9) Invoices that are not fully paid
+GET {{url}}/rest/v1/invoice?select=invoice_id,notes,invoice_date,amount_due,due_date,status&status=neq.paid&sales_order_id=not.is.null&order=invoice_date
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 10) Credit sales only
+GET {{url}}/rest/v1/sales_order?select=sales_order_id,order_date,total_amount,amount_paid,customer(name)&payment_type=eq.credit
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 11) Promotion / discount codes
+GET {{url}}/rest/v1/discount?select=*
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 12) Warranty records of products sold
+GET {{url}}/rest/v1/warranty_record?select=warranty_id,sale_date,expiry_date,status,product(name),sales_order_id&order=expiry_date&limit=20
+apikey: {{key}}
+Authorization: Bearer {{token}}

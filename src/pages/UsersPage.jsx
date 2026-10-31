@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react';
-import { USERS, ROLES, AUDIT_LOG } from '../data/mockData';
+import { USERS, ROLES, AUDIT_LOG, newAuditId } from '../data/store';
 import { Plus, Shield, Lock, Unlock, Search, Edit2, Trash2, KeyRound, UserPlus } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
-import { PERMISSIONS } from '../context/AuthContext';
-import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
-import { createStaffAccount, updateStaffProfile } from '../lib/staffAccounts';
+import { PERMISSIONS, useAuth } from '../context/AuthContext';
+import { createStaffAccount } from '../lib/staffAccounts';
 import { format } from 'date-fns';
 
 // Pages that can be given to a role (permission table)
@@ -62,13 +61,13 @@ function UserModal({ user, onClose, onSave, saving }) {
                 required
               />
             </div>
-            {!(user && isSupabaseConfigured) && (
+            {!user && (
             <div className="form-group">
-              <label className="form-label">Password {user ? '(Leave to keep current)' : '* (min. 6 characters)'}</label>
+              <label className="form-label">Password * (min. 6 characters)</label>
               <input
-                type="text"
+                type="password"
                 className="form-input"
-                value={form.password}
+                value={form.password || ''}
                 onChange={e => set('password', e.target.value)}
                 placeholder="Set password"
               />
@@ -80,12 +79,13 @@ function UserModal({ user, onClose, onSave, saving }) {
             <div className="form-group">
               <label className="form-label">Role Assignment *</label>
               <select
+                id="user-role"
                 className="form-select"
                 value={form.role}
                 onChange={e => set('role', e.target.value)}
               >
                 {Object.entries(ROLES).map(([key, r]) => (
-                  <option key={key} value={key}>{r.label}</option>
+                  <option key={key} value={key}>{r.label}{r.active === false ? ' (inactive)' : ''}</option>
                 ))}
               </select>
             </div>
@@ -130,25 +130,13 @@ function UserModal({ user, onClose, onSave, saving }) {
 
 export default function UsersPage() {
   const toast = useToast();
+  const { user: me } = useAuth();
   const [users, setUsers] = useState(() => [...USERS]);
   const [q, setQ] = useState('');
   const [activeTab, setActiveTab] = useState('users');
   const [modal, setModal] = useState(null); // null | 'new' | user object
   const [saving, setSaving] = useState(false);
 
-  // Show staff accounts that exist in Supabase but are not in the sample list (e.g. created earlier)
-  useEffect(() => {
-    if (!isSupabaseConfigured) return;
-    supabase.from('user').select('user_id, full_name, email, user_type, is_active, is_locked').then(({ data }) => {
-      const extra = (data || [])
-        .filter(r => r.email && r.is_active !== false && !USERS.some(u => u.email.toLowerCase() === r.email.toLowerCase()))
-        .map((r, i) => ({
-          id: `U${String(USERS.length + i + 1).padStart(3, '0')}`, authId: r.user_id, name: r.full_name || r.email, email: r.email,
-          role: ROLES[r.user_type] ? r.user_type : 'sales', avatar: '👤', active: !r.is_locked, fromSupabase: true,
-        }));
-      if (extra.length) { USERS.push(...extra); setUsers([...USERS]); }
-    });
-  }, []);
   const [permDraft, setPermDraft] = useState(() =>
     Object.fromEntries(Object.keys(ROLES).map(k => [k, [...(PERMISSIONS[k] || [])]])));
 
@@ -156,14 +144,25 @@ export default function UsersPage() {
     ...d, [role]: d[role].includes(perm) ? d[role].filter(p => p !== perm) : [...d[role], perm],
   }));
 
+  // Roles can be switched off; a user cannot be given an inactive role
+  const [roleActive, setRoleActive] = useState(() => Object.fromEntries(Object.entries(ROLES).map(([k, r]) => [k, r.active !== false])));
+  const toggleRoleActive = (key) => {
+    if (key === 'admin') { toast.error('The Admin role cannot be switched off'); return; }
+    const next = !roleActive[key];
+    ROLES[key].active = next;
+    setRoleActive(r => ({ ...r, [key]: next }));
+    toast.info(`${ROLES[key].label} role is now ${next ? 'active' : 'inactive'}`);
+  };
+
   const savePerms = (role) => {
+    if (ROLES[role]?.active === false) { toast.error('Selected role is not active'); return; }
     PERMISSIONS[role].splice(0, PERMISSIONS[role].length, ...permDraft[role]);
     AUDIT_LOG.unshift({
-      id: `AL${Date.now()}`, action: 'PERMISSIONS_UPDATED', userId: 'U001',
+      id: newAuditId(), action: 'PERMISSIONS_UPDATED', userId: me?.id,
       detail: `Permissions for ${ROLES[role]?.label || role} updated (${permDraft[role].length} pages)`,
       timestamp: new Date().toISOString(),
     });
-    toast.success(`Permissions saved for ${ROLES[role]?.label || role}`);
+    toast.success(`Role and permissions updated for ${ROLES[role]?.label || role}`);
   };
 
   const filtered = users.filter(u =>
@@ -176,12 +175,11 @@ export default function UsersPage() {
     const u = USERS.find(x => x.id === userId);
     if (!u) return;
     const newStatus = !u.active;
-    u.active = newStatus;
-    updateStaffProfile(u.email, { is_locked: !newStatus }).then(r => { if (!r.ok) toast.error('Could not save the lock status: ' + r.message); });
+    u.active = newStatus;   // saved to "user".is_locked
     setUsers(us => us.map(x => x.id === userId ? { ...x, active: newStatus } : x));
 
     AUDIT_LOG.unshift({
-      id: `AL${Date.now()}`,
+      id: newAuditId(),
       action: newStatus ? 'UNLOCK_ACCOUNT' : 'LOCK_ACCOUNT',
       userId: u.id,
       detail: `Account ${u.name} (${u.email}) was ${newStatus ? 'unlocked' : 'locked'}`,
@@ -192,6 +190,7 @@ export default function UsersPage() {
   };
 
   const handleSaveUser = async (form) => {
+    if (ROLES[form.role]?.active === false) { toast.error('Selected role is not active'); return; }
     if (modal === 'new') {
       if (USERS.some(u => u.email.toLowerCase() === form.email.trim().toLowerCase())) {
         toast.error('A user with this e-mail already exists.');
@@ -205,15 +204,18 @@ export default function UsersPage() {
       const newU = {
         ...form,
         email: form.email.trim(),
-        id: `U${String(USERS.length + 1).padStart(3, '0')}`,
+        id: res.authId,          // the Supabase Auth id is the user's id in every table
         authId: res.authId,
-        active: true
+        avatar: '👤',
+        active: true,
+        ...(form.role === 'technician' ? { skills: ['repair', 'installation', 'maintenance'] } : {}),
       };
+      delete newU.password;
       USERS.push(newU);
       setUsers(us => [...us, newU]);
 
       AUDIT_LOG.unshift({
-        id: `AL${Date.now()}`,
+        id: newAuditId(),
         action: 'CREATE_USER',
         userId: newU.id,
         detail: `New user account created: ${newU.name} as ${ROLES[newU.role]?.label || newU.role}`,
@@ -223,14 +225,14 @@ export default function UsersPage() {
       toast.success(`User ${newU.name} created. They can sign in now with ${newU.email} and their password.`);
     } else {
       const updated = { ...modal, ...form };
-      const up = await updateStaffProfile(modal.email, { full_name: updated.name, user_type: updated.role });
-      if (!up.ok) { toast.error('Could not save the changes: ' + up.message); return; }
+      delete updated.password;
+      if (updated.role === 'technician' && !updated.skills) updated.skills = ['repair', 'installation', 'maintenance'];
       setUsers(us => us.map(u => u.id === modal.id ? updated : u));
       const i = USERS.findIndex(u => u.id === modal.id);
       if (i !== -1) USERS[i] = updated;
 
       AUDIT_LOG.unshift({
-        id: `AL${Date.now()}`,
+        id: newAuditId(),
         action: 'UPDATE_USER',
         userId: modal.id,
         detail: `Updated user profile and credentials for ${updated.name}`,
@@ -248,13 +250,12 @@ export default function UsersPage() {
       return;
     }
     if (confirm(`Are you sure you want to delete user ${u.name}?`)) {
-      updateStaffProfile(u.email, { is_active: false, is_locked: true });
       setUsers(us => us.filter(x => x.id !== u.id));
       const idx = USERS.findIndex(x => x.id === u.id);
       if (idx !== -1) USERS.splice(idx, 1);
 
       AUDIT_LOG.unshift({
-        id: `AL${Date.now()}`,
+        id: newAuditId(),
         action: 'DELETE_USER',
         userId: u.id,
         detail: `Deleted user ${u.name} (${u.email})`,
@@ -305,7 +306,7 @@ export default function UsersPage() {
                 <th>Email Address</th>
                 <th>Role & Scope</th>
                 <th>Account Status</th>
-                <th>Credentials</th>
+                <th>Last Sign-in</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -317,7 +318,7 @@ export default function UsersPage() {
                       <span style={{ fontSize: 24 }}>{u.avatar}</span>
                       <div>
                         <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{u.name}</div>
-                        <div style={{ fontSize: 11.5, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{u.id}</div>
+                        <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>{u.department || (u.role === 'technician' && u.skills?.length ? u.skills.join(', ') : ROLES[u.role]?.label)}</div>
                       </div>
                     </div>
                   </td>
@@ -333,15 +334,15 @@ export default function UsersPage() {
                     </span>
                   </td>
                   <td>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>
-                      ••••••••
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                      {u.lastLogin ? String(u.lastLogin).slice(0, 16).replace('T', ' ') : 'Never'}
                     </span>
                   </td>
                   <td>
                     <div className="table-action-cell">
                       <button
                         className="btn btn-ghost btn-sm btn-icon"
-                        title="Edit User & Credentials"
+                        title="Edit user"
                         onClick={() => setModal(u)}
                       >
                         <Edit2 size={13} />
@@ -416,7 +417,12 @@ export default function UsersPage() {
                         {roleUsers.length} staff member{roleUsers.length !== 1 ? 's' : ''} · {roleUsers.map(u => u.avatar).join(' ')}
                       </div>
                     </div>
-                    <span className={`badge badge-${role.color}`}>{key}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                        <input id={`role-active-${key}`} type="checkbox" checked={roleActive[key]} onChange={() => toggleRoleActive(key)} /> Active
+                      </label>
+                      <span className={`badge badge-${roleActive[key] ? role.color : 'gray'}`}>{roleActive[key] ? key : 'inactive'}</span>
+                    </div>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px', marginBottom: 12 }}>
                     {PAGE_PERMISSIONS.map(([perm, label]) => {

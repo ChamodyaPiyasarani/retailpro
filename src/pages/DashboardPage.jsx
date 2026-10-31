@@ -4,16 +4,20 @@ import {
 } from 'recharts';
 import {
   TrendingUp, TrendingDown, ShoppingCart, Package, Wrench,
-  CreditCard, AlertTriangle, ArrowRight, Users, Truck
+  CreditCard, AlertTriangle, ArrowRight, Users, Truck, RefreshCw
 } from 'lucide-react';
+import { useState } from 'react';
+import { useToast } from '../context/ToastContext';
+import { getAllTransactions, SUPPLIER_PAYMENTS } from '../data/store';
+import { subDays } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
 import {
   SALES_ORDERS, SERVICE_JOBS, PRODUCTS, CUSTOMERS, PURCHASE_ORDERS,
   PAYMENTS, RETURNS, COMPLAINTS, getLowStockProducts, getOverduePOs,
-  getOutstandingInvoices, getDailySalesData, fmt
-} from '../data/mockData';
+  getOutstandingInvoices, getDailySalesData, fmt, CATEGORIES
+} from '../data/store';
 import { useAuth } from '../context/AuthContext';
-import { AUDIT_LOG } from '../data/mockData';
+import { AUDIT_LOG } from '../data/store';
 import { format } from 'date-fns';
 
 const COLORS = ['#3b82f6','#8b5cf6','#10b981','#f59e0b','#ef4444','#6366f1'];
@@ -57,6 +61,19 @@ function StatCard({ label, value, change, changeDir, icon: Icon, colorClass }) {
 export default function DashboardPage() {
   const { user, can, canDo } = useAuth();
   const navigate = useNavigate();
+  const toast = useToast();
+  const [refreshedAt, setRefreshedAt] = useState(new Date());
+  const [period, setPeriod] = useState(30);   // financial analytics period (days)
+  const refresh = () => { setRefreshedAt(new Date()); toast.success(user?.role === 'finance' ? 'Analytics updated' : 'Dashboard updated'); };
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
+  const activityToday = AUDIT_LOG.some(a => (a.timestamp || '').slice(0, 10) === todayStr) || SALES_ORDERS.some(o => o.date === todayStr);
+  // Financial analytics for the chosen period
+  const since = format(subDays(new Date(), period), 'yyyy-MM-dd');
+  const finTx = getAllTransactions().filter(t => (t.date || '') >= since);
+  const finIn = finTx.filter(t => t.amount > 0).reduce((a, t) => a + t.amount, 0);
+  const finOut = finTx.filter(t => t.amount < 0).reduce((a, t) => a - t.amount, 0);
+  const finOutstanding = SALES_ORDERS.reduce((a, o) => a + (o.balance || 0), 0);
+  const finPayables = PURCHASE_ORDERS.filter(p => p.payableStatus === 'pending').reduce((a, p) => a + (p.grandTotal || 0), 0);
 
   const salesData = getDailySalesData();
   const totalRevenue = SALES_ORDERS.reduce((s,o) => s + o.grandTotal, 0);
@@ -64,16 +81,26 @@ export default function DashboardPage() {
   const lowStock = getLowStockProducts();
   const overduePOs = getOverduePOs();
   const outstanding = getOutstandingInvoices();
-  const pendingJobs = SERVICE_JOBS.filter(j => j.status === 'pending' || j.status === 'in-progress');
+  // A technician only counts the jobs assigned to him
+  const pendingJobs = SERVICE_JOBS.filter(j => ['pending', 'assigned', 'in-progress', 'on-hold'].includes(j.status) &&
+    (user?.role !== 'technician' || j.assignedTo === user.id));
   const openComplaints = COMPLAINTS.filter(c => c.status === 'open');
 
-  const categoryData = [
-    { name:'Processors', value: SALES_ORDERS.reduce((s,o) => s + o.items.filter(i=>i.productId?.startsWith('P001')||i.productId?.startsWith('P003')).reduce((a,i)=>a+i.total,0), 0) || 740000 },
-    { name:'Graphics Cards', value: SALES_ORDERS.reduce((s,o) => s + o.items.filter(i=>i.productId?.startsWith('P002')||i.productId?.startsWith('P007')||i.productId?.startsWith('P012')).reduce((a,i)=>a+i.total,0),0) || 347000 },
-    { name:'Motherboards', value:135000 },
-    { name:'Memory & Storage', value:115000 },
-    { name:'Peripherals', value:24500 },
-  ];
+  // Sales by product category (from the sales order lines)
+  const categoryData = CATEGORIES.map(c => ({
+    name: c.name,
+    value: SALES_ORDERS.filter(o => o.status !== 'on-hold').reduce((s, o) => s + o.items.filter(i => PRODUCTS.find(p => p.id === i.productId)?.category === c.id).reduce((a, i) => a + i.total, 0), 0),
+  })).filter(c => c.value > 0).sort((x, y) => y.value - x.value).slice(0, 5);
+
+  // Changes shown under the figures, worked out from the records
+  const isoDay = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
+  const revIn = (from, to) => SALES_ORDERS.filter(o => o.date >= isoDay(from) && o.date < isoDay(to)).reduce((s, o) => s + o.grandTotal, 0);
+  const thisWeek = revIn(7, -1), lastWeek = revIn(14, 7);
+  const revChange = lastWeek ? Math.round((thisWeek - lastWeek) * 100 / lastWeek) : null;
+  const monthKey = new Date().toISOString().slice(0, 7);
+  const paidThisMonth = PAYMENTS.filter(p => (p.date || '').startsWith(monthKey)).reduce((s, p) => s + p.amount, 0);
+  const newCustomers = CUSTOMERS.filter(c => (c.createdAt || '').startsWith(monthKey)).length;
+
 
   const recentActivity = AUDIT_LOG.slice(0, 6);
 
@@ -92,7 +119,39 @@ export default function DashboardPage() {
           <h1 className="page-title">Good {new Date().getHours() < 12 ? 'Morning' : new Date().getHours() < 17 ? 'Afternoon' : 'Evening'}, {user?.name?.split(' ')[0]} 👋</h1>
           <p className="page-subtitle">Here's what's happening with your business today · {format(new Date(),'EEEE, MMMM d, yyyy')}</p>
         </div>
+        <div className="page-header-actions">
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Updated {format(refreshedAt, 'hh:mm:ss a')}</span>
+          <button id="btn-refresh-dashboard" className="btn btn-outline" onClick={refresh}><RefreshCw size={14} /> Refresh</button>
+        </div>
       </div>
+
+      {!activityToday && (
+        <div id="no-activity-today" className="alert alert-info" style={{ marginBottom: 16 }}>
+          <AlertTriangle size={16} /> <span>No activity recorded for today.</span>
+        </div>
+      )}
+
+      {/* Real-time financial analytics (Finance Manager) */}
+      {user?.role === 'finance' && (
+        <div className="card" id="financial-analytics" style={{ marginBottom: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+            <div style={{ fontWeight: 700, fontSize: 15 }}>Financial Analytics</div>
+            <select id="analytics-period" className="form-select" value={period} onChange={e => setPeriod(+e.target.value)} style={{ width: 170 }}>
+              <option value={1}>Today</option><option value={7}>Last 7 days</option><option value={30}>Last 30 days</option><option value={90}>Last 90 days</option>
+            </select>
+          </div>
+          {finTx.length === 0 ? (
+            <div id="no-fin-activity" className="alert alert-info"><span>No financial activity for this period.</span></div>
+          ) : (
+            <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))' }}>
+              {[['Money in', finIn, 'success'], ['Money out', finOut, 'danger'], ['Net cash flow', finIn - finOut, 'primary'], ['Customers owe', finOutstanding, 'warning'], ['Payables due', finPayables, 'accent']].map(([l, v, c]) => (
+                <div key={l} className={`stat-card ${c}`}><div className="stat-card-header"><span className="stat-card-label">{l}</span></div><div className="stat-card-value" style={{ fontSize: 18 }}>{fmt(v)}</div></div>
+              ))}
+              <div className="stat-card"><div className="stat-card-header"><span className="stat-card-label">Transactions</span></div><div className="stat-card-value" style={{ fontSize: 18 }}>{finTx.length}</div></div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Alerts */}
       {(lowStock.length > 0 || overduePOs.length > 0 || openComplaints.length > 0) && (
@@ -122,19 +181,19 @@ export default function DashboardPage() {
       <div className="stat-grid">
         <StatCard
           label="Total Revenue" value={fmt(totalRevenue)} icon={TrendingUp}
-          colorClass="primary" change="+12% vs last week" changeDir="up"
+          colorClass="primary" change={revChange === null ? 'No sales last week' : `${revChange >= 0 ? '+' : ''}${revChange}% vs last week`} changeDir={revChange === null || revChange >= 0 ? 'up' : 'down'}
         />
         <StatCard
           label="Sales Orders" value={SALES_ORDERS.length} icon={ShoppingCart}
           colorClass="success" change={`${outstanding.length} outstanding`} changeDir="up"
         />
         <StatCard
-          label="Active Service Jobs" value={pendingJobs.length} icon={Wrench}
+          label={user?.role === 'technician' ? 'My Active Jobs' : 'Active Service Jobs'} value={pendingJobs.length} icon={Wrench}
           colorClass="warning"
         />
         <StatCard
           label="Payments Collected" value={fmt(totalPaid)} icon={CreditCard}
-          colorClass="accent" change="+8% this month" changeDir="up"
+          colorClass="accent" change={`${fmt(paidThisMonth)} this month`} changeDir="up"
         />
         <StatCard
           label="Low Stock Items" value={lowStock.length} icon={Package}
@@ -144,7 +203,7 @@ export default function DashboardPage() {
         />
         <StatCard
           label="Total Customers" value={CUSTOMERS.length} icon={Users}
-          colorClass="primary" change="+2 this month" changeDir="up"
+          colorClass="primary" change={`+${newCustomers} this month`} changeDir="up"
         />
         <StatCard
           label="Pending POs" value={PURCHASE_ORDERS.filter(p=>p.status!=='received').length} icon={Truck}

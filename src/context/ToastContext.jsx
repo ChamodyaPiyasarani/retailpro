@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback } from 'react';
+import { saveSoon } from '../lib/db/sync';
 
 const ToastContext = createContext(null);
 
@@ -8,6 +9,7 @@ export function ToastProvider({ children }) {
   const addToast = useCallback((message, type = 'info', duration = 4000) => {
     const id = Date.now();
     setToasts(t => [...t, { id, message, type }]);
+    saveSoon();   // every action shows a message, so save the change to the database straight away
     setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), duration);
   }, []);
 

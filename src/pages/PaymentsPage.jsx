@@ -3,7 +3,13 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Plus, Search, CreditCard, DollarSign, Clock, CheckCircle, Send, AlertTriangle } from 'lucide-react';
 import {
   PAYMENTS, SUPPLIER_PAYMENTS, SALES_ORDERS, CUSTOMERS, SUPPLIERS, PURCHASE_ORDERS,
-  fmt, newPayId, getCustomer, getSupplier, getSalesOrder, RECONCILIATIONS, getAllTransactions } from '../data/mockData';
+  fmt, newPayId, getCustomer, getSupplier, getSalesOrder, RECONCILIATIONS, getAllTransactions,
+  CREDIT_REQUESTS, SERVICE_JOBS, APP_SETTINGS, today, newSupplierPayId, newReconId, newestFirst } from '../data/store';
+import { differenceInDays } from 'date-fns';
+
+// SD 50: how many days an unpaid invoice has been open
+const ageOf = (date) => Math.max(0, differenceInDays(new Date(), new Date(date)));
+const bucketOf = (days) => (days <= 30 ? '0–30 days' : days <= 60 ? '31–60 days' : 'Over 60 days');
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
 import { format } from 'date-fns';
@@ -88,6 +94,45 @@ export default function PaymentsPage() {
   }, [location.state]); // eslint-disable-line react-hooks/exhaustive-deps
   const [q, setQ] = useState('');
   const [, bump] = useState(0);
+  const [txFrom, setTxFrom] = useState('');
+  const [txTo, setTxTo] = useState('');
+  const [txType, setTxType] = useState('all');
+  const [txOpen, setTxOpen] = useState(null);      // SD 49 source record of a transaction
+  const [payForm, setPayForm] = useState({});      // SD 46 supplier payment amount / method per PO
+  const supPaidSoFar = (poId) => SUPPLIER_PAYMENTS.filter(sp => sp.purchaseOrderId === poId && sp.date).reduce((a, sp) => a + sp.amount, 0);
+
+  // SD 46 Manage supplier payments: amount + method, part payments allowed
+  const paySupplier = (po) => {
+    const f = payForm[po.id] || {};
+    const balance = po.grandTotal - supPaidSoFar(po.id);
+    const amount = Number(f.amount ?? balance);
+    if (!(amount > 0)) { toast.error('Enter the amount to pay'); return; }
+    if (amount > balance) { toast.error('Amount cannot exceed the balance due'); return; }
+    const placeholder = SUPPLIER_PAYMENTS.find(x => x.purchaseOrderId === po.id && !x.date);
+    const rec = { supplierId: po.supplierId, purchaseOrderId: po.id, amount, method: f.method || 'transfer', date: today(), recordedBy: user?.id, note: amount === balance ? `${po.id} settled` : `${po.id} part payment`, status: 'paid' };
+    if (placeholder) Object.assign(placeholder, rec); else SUPPLIER_PAYMENTS.push({ id: newSupplierPayId(), ...rec });
+    const left = balance - amount;
+    if (left <= 0) { const i = PURCHASE_ORDERS.findIndex(o => o.id === po.id); if (i !== -1) PURCHASE_ORDERS[i].payableStatus = 'paid'; }
+    setSupplierPayments([...SUPPLIER_PAYMENTS]);
+    setPayForm(pf => ({ ...pf, [po.id]: {} }));
+    toast.success(left > 0 ? `Supplier payment recorded – balance ${fmt(left)}` : `Supplier payment recorded – ${po.id} fully paid`);
+  };
+
+  // SD 48 Approve credit limits: payment history and approval authority are checked
+  const decideCredit = (r, approve) => {
+    const c = CUSTOMERS.find(x => x.id === r.customerId);
+    if (!approve) { r.status = 'rejected'; r.decidedBy = user?.id; toast.success(`Credit request ${r.id} rejected`); bump(n => n + 1); return; }
+    const late = SALES_ORDERS.filter(o => o.customerId === r.customerId && o.paymentStatus !== 'paid' && (o.flaggedOverdue || ageOf(o.date) > 60));
+    if (late.length) { r.status = 'rejected'; r.reason = 'Poor payment history'; toast.error(`Request rejected – poor payment history (${late.length} overdue invoice${late.length > 1 ? 's' : ''})`); bump(n => n + 1); return; }
+    if (r.requestedLimit > APP_SETTINGS.creditApprovalLimit && !canDo('credit.approveEscalated')) {
+      r.status = 'escalated'; r.escalatedBy = user?.id;
+      toast.warning(`Request exceeds your authority (${fmt(APP_SETTINGS.creditApprovalLimit)}) – escalated to Admin`); bump(n => n + 1); return;
+    }
+    if (c) c.creditLimit = r.requestedLimit;
+    r.status = 'approved'; r.decidedBy = user?.id; r.decidedAt = today();
+    toast.success(`Credit limit approved – ${c?.name} now ${fmt(r.requestedLimit)}`);
+    bump(n => n + 1);
+  };
 
   const totalReceived = payments.reduce((s,p)=>s+p.amount,0);
   const totalPaid = supplierPayments.reduce((s,p)=>s+p.amount,0);
@@ -166,6 +211,7 @@ export default function PaymentsPage() {
           <button className={`tab-btn ${activeTab==='payables'?'active':''}`} onClick={()=>setActiveTab('payables')}>🏭 Supplier Payables</button>
           <button id="tab-transactions" className={`tab-btn ${activeTab==='transactions'?'active':''}`} onClick={()=>setActiveTab('transactions')}>📒 All Transactions</button>
           <button id="tab-reconcile" className={`tab-btn ${activeTab==='reconcile'?'active':''}`} onClick={()=>setActiveTab('reconcile')}>⚖️ Reconcile</button>
+          {(canDo('credit.approve') || canDo('credit.approveEscalated')) && <button id="tab-credit" className={`tab-btn ${activeTab==='credit'?'active':''}`} onClick={()=>setActiveTab('credit')}>🧾 Credit Requests ({CREDIT_REQUESTS.filter(r => ['pending','escalated'].includes(r.status)).length})</button>}
         </div>
         <div className="search-bar" style={{ marginLeft:'auto' }}>
           <Search size={14} color="var(--text-muted)"/>
@@ -174,11 +220,23 @@ export default function PaymentsPage() {
       </div>
 
       {activeTab === 'transactions' && (() => {
-        const rows = getAllTransactions().filter(t => !q || `${t.id} ${t.party} ${t.ref} ${t.kind}`.toLowerCase().includes(q.toLowerCase()));
+        const rangeOk = (!txFrom && !txTo) || (txFrom && txTo && txFrom <= txTo && txTo <= today());
+        const rows = getAllTransactions().filter(t => (!q || `${t.id} ${t.party} ${t.ref} ${t.kind}`.toLowerCase().includes(q.toLowerCase())) &&
+          (txType === 'all' || t.kind === txType) && (!rangeOk || !txFrom || (t.date >= txFrom && t.date <= txTo)));
         const inTotal = rows.filter(t => t.amount > 0).reduce((a, t) => a + t.amount, 0);
         const outTotal = rows.filter(t => t.amount < 0).reduce((a, t) => a - t.amount, 0);
         return (
           <div>
+            <div style={{ display:'flex', gap:10, alignItems:'center', fontSize:13, marginBottom:10, flexWrap:'wrap' }}>
+              <label>From <input id="tx-from" type="date" className="form-input" style={{ width:150, display:'inline-block' }} value={txFrom} onChange={e=>setTxFrom(e.target.value)} /></label>
+              <label>To <input id="tx-to" type="date" className="form-input" style={{ width:150, display:'inline-block' }} value={txTo} onChange={e=>setTxTo(e.target.value)} /></label>
+              <select id="tx-type" className="form-select" style={{ width:180 }} value={txType} onChange={e=>setTxType(e.target.value)}>
+                <option value="all">All types</option><option>Customer payment</option><option>Supplier payment</option><option>Service fee</option><option>Refund</option>
+              </select>
+              {(txFrom || txTo || txType !== 'all') && <button className="btn btn-ghost btn-sm" onClick={() => { setTxFrom(''); setTxTo(''); setTxType('all'); }}>Clear</button>}
+            </div>
+            {!rangeOk && <div id="tx-range-error" className="alert alert-danger" style={{ marginBottom:10 }}>Please select a valid date range</div>}
+            {rangeOk && rows.length === 0 && <div id="tx-empty" className="alert alert-info" style={{ marginBottom:10 }}>No transactions for this filter</div>}
             <div style={{ display:'flex', gap:16, fontSize:13, marginBottom:10, flexWrap:'wrap' }}>
               <span>Money in: <strong style={{ color:'var(--success-400)', fontFamily:'var(--font-mono)' }}>{fmt(inTotal)}</strong></span>
               <span>Money out: <strong style={{ color:'var(--danger-400)', fontFamily:'var(--font-mono)' }}>{fmt(outTotal)}</strong></span>
@@ -189,7 +247,7 @@ export default function PaymentsPage() {
                 <thead><tr><th>Date</th><th>Transaction</th><th>Type</th><th>Customer / Supplier</th><th>Reference</th><th>Method</th><th>Amount</th></tr></thead>
                 <tbody>
                   {rows.map(t => (
-                    <tr key={t.id}>
+                    <tr key={t.id} id={`tx-${t.id}`} style={{ cursor:'pointer' }} onClick={() => setTxOpen(t)} title="Open the source record">
                       <td style={{ fontSize:12 }}>{t.date}</td>
                       <td style={{ fontFamily:'var(--font-mono)', fontSize:12 }}>{t.id}</td>
                       <td><span className={`badge badge-${t.amount >= 0 ? 'success' : 'danger'}`}>{t.kind}</span></td>
@@ -206,13 +264,68 @@ export default function PaymentsPage() {
         );
       })()}
 
+      {txOpen && (() => {
+        const so = SALES_ORDERS.find(o => o.id === txOpen.ref);
+        const po = PURCHASE_ORDERS.find(o => o.id === txOpen.ref);
+        const job = SERVICE_JOBS.find(j => j.id === txOpen.ref);
+        return (
+          <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&setTxOpen(null)}>
+            <div className="modal" id="tx-detail">
+              <div className="modal-header"><span style={{ fontSize:20 }}>📄</span><div className="modal-title">{txOpen.kind} {txOpen.id}</div>
+                <button className="btn btn-ghost btn-sm" style={{ marginLeft:'auto' }} onClick={() => setTxOpen(null)}>✕</button></div>
+              <div className="modal-body" style={{ fontSize:13, display:'flex', flexDirection:'column', gap:6 }}>
+                <div>Date: {txOpen.date} · Method: {txOpen.method} · Amount: <b>{fmt(Math.abs(txOpen.amount))}</b></div>
+                <div>Customer / supplier: {txOpen.party}</div>
+                {so && <><div style={{ fontWeight:700, marginTop:8 }}>Invoice {so.invoiceNo || so.id}</div>
+                  {so.items.map((it, i) => <div key={i}>{it.name} × {it.qty} – {fmt(it.total)}</div>)}
+                  <div>Total {fmt(so.grandTotal)} · Paid {fmt(so.amountPaid)} · Balance {fmt(so.balance)} · {so.paymentStatus}</div></>}
+                {po && <><div style={{ fontWeight:700, marginTop:8 }}>Purchase order {po.id} – payable {po.payableStatus}</div>
+                  {po.items.map((it, i) => <div key={i}>{it.name} × {it.qty} – {fmt(it.total)}</div>)}
+                  <div>Total {fmt(po.grandTotal)} · Paid so far {fmt(supPaidSoFar(po.id))}</div></>}
+                {job && <><div style={{ fontWeight:700, marginTop:8 }}>Service job {job.id}</div><div>{job.type} – {job.description}</div><div>Fee {fmt(job.serviceFee)} · {job.billingStatus}</div></>}
+                {!so && !po && !job && <div>No source record linked.</div>}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {activeTab === 'credit' && (
+        <div className="table-container" id="credit-requests">
+          <table className="table">
+            <thead><tr><th>Request</th><th>Customer</th><th>Current limit</th><th>Requested</th><th>Unpaid invoices</th><th>Date</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+              {CREDIT_REQUESTS.length === 0 && <tr><td colSpan={8}><div className="empty-state-title">No credit requests</div></td></tr>}
+              {newestFirst(CREDIT_REQUESTS, 'requestDate').map(r => {
+                const c = getCustomer(r.customerId);
+                const unpaid = SALES_ORDERS.filter(o => o.customerId === r.customerId && o.paymentStatus !== 'paid');
+                const canAct = (r.status === 'pending' && canDo('credit.approve')) || (r.status === 'escalated' && canDo('credit.approveEscalated'));
+                return (
+                  <tr key={r.id}>
+                    <td style={{ fontFamily:'var(--font-mono)' }}>{r.id}</td><td>{c?.name}<div style={{ fontSize:11, color:'var(--text-muted)' }}>{r.note}</div></td>
+                    <td>{fmt(r.currentLimit)}</td><td style={{ fontWeight:700 }}>{fmt(r.requestedLimit)}</td>
+                    <td>{unpaid.length ? `${unpaid.length} (${fmt(unpaid.reduce((a, o) => a + o.balance, 0))})` : 'none'}</td>
+                    <td style={{ fontSize:12 }}>{r.requestDate}</td>
+                    <td><span className={`badge badge-${r.status === 'approved' ? 'success' : r.status === 'rejected' ? 'danger' : 'warning'}`}>{r.status}</span>{r.reason && <div style={{ fontSize:11 }}>{r.reason}</div>}</td>
+                    <td>{canAct && <div className="table-action-cell">
+                      <button id={`credit-approve-${r.id}`} className="btn btn-success btn-sm" onClick={() => decideCredit(r, true)}>Approve</button>
+                      <button id={`credit-reject-${r.id}`} className="btn btn-danger btn-sm" onClick={() => decideCredit(r, false)}>Reject</button>
+                    </div>}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {activeTab === 'reconcile' && (() => {
         const paidFor = (soId) => PAYMENTS.filter(p => p.salesOrderId === soId && !p.note?.startsWith('Refund')).reduce((a, p) => a + p.amount, 0);
         const sales = SALES_ORDERS.map(o => ({ o, received: paidFor(o.id), ok: paidFor(o.id) === (o.amountPaid || 0) }));
         const supPaid = (poId) => SUPPLIER_PAYMENTS.filter(sp => sp.purchaseOrderId === poId && sp.date).reduce((a, sp) => a + sp.amount, 0);
         const purchases = PURCHASE_ORDERS.filter(po => po.status === 'received').map(po => {
           const paid = supPaid(po.id);
-          const ok = po.payableStatus === 'paid' ? paid === po.grandTotal : paid === 0;
+          const ok = po.payableStatus === 'paid' ? paid === po.grandTotal : paid < po.grandTotal;
           return { po, paid, ok };
         });
         const issues = sales.filter(r => !r.ok).length + purchases.filter(r => !r.ok).length;
@@ -224,7 +337,7 @@ export default function PaymentsPage() {
               {last && <span style={{ color:'var(--text-muted)' }}>Last reconciled {last.date} ({last.result})</span>}
               {canDo('payment.reconcile') && (
                 <button id="btn-reconcile" className="btn btn-primary btn-sm" style={{ marginLeft:'auto' }} onClick={() => {
-                  RECONCILIATIONS.push({ id:`REC-${RECONCILIATIONS.length+1}`, date: format(new Date(),'yyyy-MM-dd'), userId: user?.id, result: issues ? `${issues} mismatch(es)` : 'balanced' });
+                  RECONCILIATIONS.push({ id:newReconId(), date: format(new Date(),'yyyy-MM-dd'), userId: user?.id, result: issues ? `${issues} mismatch(es)` : 'balanced' });
                   toast.success(issues ? `Reconciliation saved with ${issues} mismatch(es)` : 'Sales and purchases reconciled');
                   bump(n => n + 1);
                 }}>Mark Reconciled</button>
@@ -278,7 +391,7 @@ export default function PaymentsPage() {
               {filteredPayments.length === 0 && (
                 <tr><td colSpan={7}><div className="empty-state"><div className="empty-state-icon">💳</div><div className="empty-state-title">No payments</div></div></td></tr>
               )}
-              {filteredPayments.map(p => {
+              {newestFirst(filteredPayments).map(p => {
                 const c = getCustomer(p.customerId);
                 return (
                   <tr key={p.id}>
@@ -297,17 +410,31 @@ export default function PaymentsPage() {
         </div>
       )}
 
+      {activeTab === 'outstanding' && outstandingInvoices.length > 0 && (
+        <div id="dues-ageing" style={{ display:'flex', gap:12, marginBottom:12, flexWrap:'wrap' }}>
+          {['0–30 days', '31–60 days', 'Over 60 days'].map(b => {
+            const inB = outstandingInvoices.filter(o => bucketOf(ageOf(o.date)) === b);
+            return (
+              <div key={b} className="card-elevated" style={{ padding:'10px 16px', minWidth:170 }}>
+                <div style={{ fontSize:11, color:'var(--text-muted)', textTransform:'uppercase' }}>{b}</div>
+                <div style={{ fontWeight:800, fontFamily:'var(--font-mono)', color: b === 'Over 60 days' ? 'var(--danger-400)' : b === '31–60 days' ? 'var(--warning-400)' : 'inherit' }}>{fmt(inB.reduce((a, o) => a + o.balance, 0))}</div>
+                <div style={{ fontSize:12, color:'var(--text-muted)' }}>{inB.length} invoice{inB.length !== 1 ? 's' : ''}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
       {activeTab === 'outstanding' && (
         <div className="table-container">
           <table className="table">
             <thead>
-              <tr><th>Invoice</th><th>Customer</th><th>Total</th><th>Paid</th><th>Balance</th><th>Date</th><th>Status</th><th>Actions</th></tr>
+              <tr><th>Invoice</th><th>Customer</th><th>Total</th><th>Paid</th><th>Balance</th><th>Date</th><th>Age</th><th>Status</th><th>Actions</th></tr>
             </thead>
             <tbody>
               {outstandingInvoices.length === 0 && (
-                <tr><td colSpan={8}><div className="empty-state"><div className="empty-state-icon">✅</div><div className="empty-state-title">All invoices paid!</div></div></td></tr>
+                <tr><td colSpan={9}><div className="empty-state"><div className="empty-state-icon">✅</div><div id="all-up-to-date" className="empty-state-title">All payments are up to date</div></div></td></tr>
               )}
-              {outstandingInvoices.map(o => {
+              {newestFirst(outstandingInvoices).map(o => {
                 const c = getCustomer(o.customerId);
                 return (
                   <tr key={o.id}>
@@ -317,6 +444,7 @@ export default function PaymentsPage() {
                     <td><span style={{ fontFamily:'var(--font-mono)', color:'var(--success-400)' }}>{fmt(o.amountPaid)}</span></td>
                     <td><span style={{ fontFamily:'var(--font-mono)', fontWeight:700, color:'var(--danger-400)' }}>{fmt(o.balance)}</span></td>
                     <td style={{ fontSize:12 }}>{o.date}</td>
+                    <td><span className={`badge badge-${ageOf(o.date) > 60 ? 'danger' : ageOf(o.date) > 30 ? 'warning' : 'gray'}`}>{ageOf(o.date)} d · {bucketOf(ageOf(o.date))}</span></td>
                     <td>
                       <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                         <span className="badge badge-warning">{o.paymentStatus}</span>
@@ -358,13 +486,13 @@ export default function PaymentsPage() {
         <div className="table-container">
           <table className="table">
             <thead>
-              <tr><th>PO</th><th>Supplier</th><th>Amount</th><th>Received Date</th><th>Due</th><th>Status</th></tr>
+              <tr><th>PO</th><th>Supplier</th><th>Amount</th><th>Paid / balance</th><th>Received Date</th><th>Due</th><th>Status</th></tr>
             </thead>
             <tbody>
               {PURCHASE_ORDERS.filter(po=>po.payableStatus==='pending').length === 0 && (
-                <tr><td colSpan={6}><div className="empty-state"><div className="empty-state-icon">✅</div><div className="empty-state-title">No pending payables</div></div></td></tr>
+                <tr><td colSpan={7}><div className="empty-state"><div className="empty-state-icon">✅</div><div className="empty-state-title">No pending payables</div></div></td></tr>
               )}
-              {PURCHASE_ORDERS.filter(po=>po.payableStatus==='pending').map(po => {
+              {newestFirst(PURCHASE_ORDERS.filter(po=>po.payableStatus==='pending'), 'receivedDate').map(po => {
                 const sup = getSupplier(po.supplierId);
                 const supData = SUPPLIERS.find(s=>s.id===po.supplierId);
                 const dueDate = po.receivedDate ? format(new Date(new Date(po.receivedDate).getTime() + (supData?.paymentTerms||30)*24*3600*1000),'yyyy-MM-dd') : '—';
@@ -373,22 +501,22 @@ export default function PaymentsPage() {
                     <td><span style={{ fontFamily:'var(--font-mono)', fontWeight:700 }}>{po.id}</span></td>
                     <td style={{ fontWeight:600 }}>{sup?.name}</td>
                     <td><span style={{ fontFamily:'var(--font-mono)', fontWeight:700, color:'var(--danger-400)' }}>{fmt(po.grandTotal)}</span></td>
+                    <td style={{ fontSize:12, fontFamily:'var(--font-mono)' }}>{fmt(supPaidSoFar(po.id))} / {fmt(po.grandTotal - supPaidSoFar(po.id))}</td>
                     <td style={{ fontSize:12 }}>{po.receivedDate || '—'}</td>
                     <td style={{ fontSize:12 }}>{dueDate}</td>
                     <td>
                       <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-                        <span className="badge badge-warning">Pending</span>
-                        {canDo('payable.pay') && <button className="btn btn-success btn-sm" onClick={() => {
-                          const i = PURCHASE_ORDERS.findIndex(o=>o.id===po.id);
-                          if (i !== -1) PURCHASE_ORDERS[i].payableStatus = 'paid';
-                          const sp = SUPPLIER_PAYMENTS.find(x => x.purchaseOrderId === po.id);
-                          const rec = { supplierId: po.supplierId, purchaseOrderId: po.id, amount: po.grandTotal, method: 'transfer', date: format(new Date(),'yyyy-MM-dd'), recordedBy: user?.id, note: `${po.id} settled`, status: 'paid' };
-                          if (sp) Object.assign(sp, rec); else SUPPLIER_PAYMENTS.push({ id: `SPAY-${String(SUPPLIER_PAYMENTS.length+1).padStart(3,'0')}`, ...rec });
-                          toast.success(`Payment marked as paid for ${po.id}`);
-                          setActiveTab('payables');
-                        }}>
-                          <CheckCircle size={12}/> Mark Paid
-                        </button>}
+                        <span className="badge badge-warning">{supPaidSoFar(po.id) > 0 ? 'Part paid' : 'Pending'}</span>
+                        {canDo('payable.pay') && (<>
+                          <input id={`sp-amount-${po.id}`} type="number" min={0} className="form-input" style={{ width:120 }} placeholder="Amount"
+                            value={payForm[po.id]?.amount ?? (po.grandTotal - supPaidSoFar(po.id))}
+                            onChange={e => setPayForm(pf => ({ ...pf, [po.id]: { ...pf[po.id], amount: e.target.value } }))} />
+                          <select id={`sp-method-${po.id}`} className="form-select" style={{ width:110 }} value={payForm[po.id]?.method || 'transfer'}
+                            onChange={e => setPayForm(pf => ({ ...pf, [po.id]: { ...pf[po.id], method: e.target.value } }))}>
+                            <option value="transfer">Transfer</option><option value="cheque">Cheque</option><option value="cash">Cash</option>
+                          </select>
+                          <button id={`sp-pay-${po.id}`} className="btn btn-success btn-sm" onClick={() => paySupplier(po)}><CheckCircle size={12}/> Pay</button>
+                        </>)}
                       </div>
                     </td>
                   </tr>

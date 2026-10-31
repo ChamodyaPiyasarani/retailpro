@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Search, Eye, Receipt, FileText } from 'lucide-react';
-import { SALES_ORDERS, CUSTOMERS, PRODUCTS, fmt, getCustomer } from '../data/mockData';
+import { SALES_ORDERS, CUSTOMERS, PRODUCTS, fmt, getCustomer, newestFirst } from '../data/store';
 
 function InvoiceDetail({ order, onClose }) {
   const customer = getCustomer(order.customerId);
@@ -114,7 +114,7 @@ export default function InvoicesPage() {
             <tr><th>Invoice #</th><th>Customer</th><th>Date</th><th>Items</th><th>Grand Total</th><th>Paid</th><th>Balance</th><th>Status</th><th>Actions</th></tr>
           </thead>
           <tbody>
-            {filtered.map(o => {
+            {newestFirst(filtered).map(o => {
               const c = getCustomer(o.customerId);
               return (
                 <tr key={o.id}>
