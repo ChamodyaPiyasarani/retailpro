@@ -40,13 +40,21 @@ describe('date range check (SD 7, 18, 26, 52)', () => {
 });
 
 describe('data sources', () => {
-  test('salesLines has one line per sold item (orders on hold left out)', () => {
-    const items = SALES_ORDERS.filter(o => o.status !== 'on-hold').reduce((a, o) => a + o.items.length, 0);
+  const start = () => `${lastSixMonths()[0].key}-01`;
+  test('salesLines has one line per sold item of the last 6 months (orders on hold left out)', () => {
+    const items = SALES_ORDERS.filter(o => o.status !== 'on-hold' && o.date >= start()).reduce((a, o) => a + o.items.length, 0);
     expect(salesLines()).toHaveLength(items);
+    expect(salesLines().every(l => l.date >= start())).toBe(true);
   });
-  test('serviceJobs and purchases list every record', () => {
-    expect(serviceJobs()).toHaveLength(SERVICE_JOBS.length);
-    expect(purchases()).toHaveLength(PURCHASE_ORDERS.length);
+  test('serviceJobs and purchases list the records of the last 6 months', () => {
+    expect(serviceJobs()).toHaveLength(SERVICE_JOBS.filter(j => !j.createdAt || j.createdAt >= start()).length);
+    expect(purchases()).toHaveLength(PURCHASE_ORDERS.filter(p => !p.date || p.date >= start()).length);
+  });
+  test('a record older than the 6 months shown is not counted', () => {
+    const old = { id: 'SO-999', date: '2000-01-01', status: 'completed', items: [{ productId: 'P001', qty: 1, unitPrice: 1, total: 1 }] };
+    SALES_ORDERS.push(old);
+    expect(salesLines().some(l => l.invoiceNo === 'SO-999')).toBe(false);
+    SALES_ORDERS.pop();
   });
 });
 

@@ -36,6 +36,7 @@ export const CREDIT_REQUESTS = [];      // credit_account (requests)
 export const PERMISSIONS_LIST = [];     // permission table: { id, name, module, action }
 export const ROLE_PERMISSIONS = {};     // role_permission table: role -> [{ name, grantedDate, accessType }]
 export const SETTINGS_META = {};        // system_setting.updated_at / user_id: key -> { updatedAt, updatedBy }
+export const STAFF_EMAILS = [];         // e-mail of every staff account (also removed ones), read only
 
 // The lists in the shape used by src/lib/db/schemaMap.js
 export const currentState = () => ({
@@ -44,7 +45,7 @@ export const currentState = () => ({
   salesOrders: SALES_ORDERS, purchaseOrders: PURCHASE_ORDERS, serviceJobs: SERVICE_JOBS, spareRequests: SPARE_PART_REQUESTS,
   stockMovements: STOCK_MOVEMENTS, returns: RETURNS, complaints: COMPLAINTS, payments: PAYMENTS, supplierPayments: SUPPLIER_PAYMENTS,
   reorders: REORDER_REQUESTS, reportSchedules: REPORT_SCHEDULES, reconciliations: RECONCILIATIONS, audit: AUDIT_LOG,
-  permissions: PERMISSIONS_LIST, rolePermissions: ROLE_PERMISSIONS, settingsMeta: SETTINGS_META,
+  permissions: PERMISSIONS_LIST, rolePermissions: ROLE_PERMISSIONS, settingsMeta: SETTINGS_META, staffEmails: STAFF_EMAILS,
 });
 
 // Put records read from the database into the lists (same list objects, so every page sees them)
@@ -83,6 +84,13 @@ export function markSettingsUpdated(keys, userId) {
   keys.forEach(k => { SETTINGS_META[k] = { updatedAt: at, updatedBy: userId || null }; });
 }
 export const lastSettingsUpdate = () => Object.values(SETTINGS_META).filter(m => m.updatedAt).sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))[0] || null;
+
+// true when a staff account already uses this e-mail (exceptEmail = the account being edited)
+export const emailInUse = (email, exceptEmail = '') => {
+  const e = String(email || '').trim().toLowerCase();
+  if (!e || e === String(exceptEmail || '').trim().toLowerCase()) return false;
+  return STAFF_EMAILS.includes(e) || USERS.some(u => String(u.email || '').trim().toLowerCase() === e);
+};
 
 // ---------- lookups ----------
 export const getCustomer  = (id) => CUSTOMERS.find(c => c.id === id);

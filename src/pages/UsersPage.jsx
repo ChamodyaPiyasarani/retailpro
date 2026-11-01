@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { USERS, ROLES, AUDIT_LOG, newAuditId, pagesOf, setRolePages, permissionsChangedOn, isValidPhone } from '../data/store';
+import { useState, useEffect, useRef } from 'react';
+import { USERS, ROLES, AUDIT_LOG, newAuditId, pagesOf, setRolePages, permissionsChangedOn, isValidPhone, isValidEmail, emailInUse, STAFF_EMAILS } from '../data/store';
 import { Plus, Shield, Lock, Unlock, Search, Edit2, Trash2, KeyRound, UserPlus } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
@@ -18,7 +18,6 @@ const PAGE_PERMISSIONS = [
 
 // Technician skills (multivalued attribute -> technician_specialisation table)
 const SKILLS = ['installation', 'repair', 'maintenance'];
-const ACCESS_LEVELS = [['full', 'Full access'], ['standard', 'Standard'], ['read-only', 'Read only']];
 const CERT_LEVELS = ['Level 1 – Trainee', 'Level 2 – Technician', 'Level 3 – Senior Technician'];
 
 function UserModal({ user, onClose, onSave, saving }) {
@@ -28,7 +27,6 @@ function UserModal({ user, onClose, onSave, saving }) {
     email: '',
     phone: '',
     department: '',
-    accessLevel: 'standard',
     password: '123456',
     role: 'sales',
     avatar: '🧑‍💼',
@@ -42,6 +40,22 @@ function UserModal({ user, onClose, onSave, saving }) {
     return { ...f, skills: cur.includes(sk) ? cur.filter(x => x !== sk) : [...cur, sk] };
   });
   const phoneOk = !form.phone || isValidPhone(form.phone);
+  // e-mail is checked while typing: format and "already used by another staff account"
+  const toast = useToast();
+  const [emailTouched, setEmailTouched] = useState(false);
+  const emailTaken = emailInUse(form.email, user?.email);
+  const emailBadFormat = !!form.email && !isValidEmail(form.email);
+  const emailError = emailTaken ? 'A user with this e-mail already exists'
+    : emailBadFormat && emailTouched ? 'E-mail format is not valid (example: name@gmail.com)' : '';
+  const lastToast = useRef('');
+  useEffect(() => {
+    // the same message also appears at the top-right corner, once for each new problem
+    if (!emailError) { lastToast.current = ''; return; }
+    const key = emailError + '|' + String(form.email).trim().toLowerCase();
+    if (lastToast.current === key) return;
+    const t = setTimeout(() => { lastToast.current = key; toast.error(`${emailError}: ${String(form.email).trim()}`); }, emailTaken ? 300 : 0);
+    return () => clearTimeout(t);
+  }, [emailError]); // eslint-disable-line react-hooks/exhaustive-deps
   const skillsOk = form.role !== 'technician' || (form.skills || []).length > 0;
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -71,13 +85,17 @@ function UserModal({ user, onClose, onSave, saving }) {
             <div className="form-group">
               <label className="form-label">Email Address *</label>
               <input
+                id="user-email"
                 type="email"
                 className="form-input"
+                style={emailError ? { borderColor: 'var(--danger-400)' } : undefined}
                 value={form.email}
                 onChange={e => set('email', e.target.value)}
+                onBlur={() => setEmailTouched(true)}
                 placeholder="name@gmail.com"
                 required
               />
+              {emailError && <div id="user-email-error" style={{ color: 'var(--danger-400)', fontSize: 11.5, marginTop: 4 }}>{emailError}</div>}
             </div>
             {!user && (
             <div className="form-group">
@@ -105,17 +123,9 @@ function UserModal({ user, onClose, onSave, saving }) {
             </div>
           </div>
 
-          <div className="form-row-2">
-            <div className="form-group">
-              <label className="form-label">Department</label>
-              <input id="user-department" className="form-input" value={form.department || ''} onChange={e => set('department', e.target.value)} placeholder="e.g. Sales, Stores, Service" />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Access Level</label>
-              <select id="user-access" className="form-select" value={form.accessLevel || 'standard'} onChange={e => set('accessLevel', e.target.value)}>
-                {ACCESS_LEVELS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-              </select>
-            </div>
+          <div className="form-group">
+            <label className="form-label">Department</label>
+            <input id="user-department" className="form-input" value={form.department || ''} onChange={e => set('department', e.target.value)} placeholder="e.g. Sales, Stores, Service" />
           </div>
 
           <div className="form-row-2">
@@ -194,7 +204,7 @@ function UserModal({ user, onClose, onSave, saving }) {
           <button className="btn btn-outline" onClick={onClose}>Cancel</button>
           <button
             className="btn btn-primary"
-            disabled={saving || !form.name || !form.email || !phoneOk || !skillsOk || (!user && (form.password || '').length < 6)}
+            disabled={saving || !form.name || !form.email || emailTaken || emailBadFormat || !phoneOk || !skillsOk || (!user && (form.password || '').length < 6)}
             onClick={() => onSave(form)}
           >
             {saving ? 'Saving…' : user ? 'Save Changes' : 'Create User'}
@@ -292,6 +302,7 @@ export default function UsersPage() {
       if (newU.role !== 'technician') { delete newU.skills; delete newU.certification; delete newU.zone; }
       delete newU.password;
       USERS.push(newU);
+      STAFF_EMAILS.push(newU.email.toLowerCase());
       setUsers(us => [...us, newU]);
 
       AUDIT_LOG.unshift({
@@ -304,6 +315,7 @@ export default function UsersPage() {
 
       toast.success(`User ${newU.name} created. They can sign in now with ${newU.email} and their password.`);
     } else {
+      if (emailInUse(form.email, modal.email)) { toast.error('A user with this e-mail already exists'); return; }
       const updated = { ...modal, ...form };
       delete updated.password;
       if (updated.role === 'technician' && !updated.skills?.length) updated.skills = [...SKILLS];

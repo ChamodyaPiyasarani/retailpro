@@ -58,13 +58,25 @@ describe('permissions come from the permission and role_permission tables', () =
 });
 
 describe('staff details', () => {
-  test('username, phone, department and access level are loaded and saved', () => {
+  test('username, phone and department are loaded and saved (no access level)', () => {
     const u = S.USERS.find(x => x.role === 'sales');
-    expect(u).toMatchObject({ username: 'kamal.p', phone: '0771234502', department: 'Sales', accessLevel: 'standard' });
-    u.accessLevel = 'read-only';
+    expect(u).toMatchObject({ username: 'kamal.p', phone: '0771234502', department: 'Sales' });
+    u.department = 'Showroom';
     const row = toTables(S.currentState()).user.find(r => r.user_id === u.id);
-    expect(row.access_level).toBe('read-only');
+    expect(row.department).toBe('Showroom');
     expect(row.username).toBe('kamal.p');
+    expect(row).not.toHaveProperty('access_level');
+    expect(u).not.toHaveProperty('accessLevel');
+  });
+  test('an e-mail that a staff account already uses is found (also removed staff, any letter case)', () => {
+    expect(S.emailInUse('cashier@gmail.com')).toBe(true);
+    expect(S.emailInUse('  CASHIER@Gmail.com ')).toBe(true);
+    expect(S.emailInUse('newperson@gmail.com')).toBe(false);
+    expect(S.emailInUse('cashier@gmail.com', 'cashier@gmail.com')).toBe(false);   // editing his own account
+    const removed = R.user.find(u => u.email === 'finance@gmail.com'); removed.is_active = false;
+    S.applyState(fromTables(R));
+    expect(S.USERS.some(u => u.email === 'finance@gmail.com')).toBe(false);
+    expect(S.emailInUse('finance@gmail.com')).toBe(true);
   });
   test('created date and last sign-in are read (the database fills them)', () => {
     const u = S.USERS[0];

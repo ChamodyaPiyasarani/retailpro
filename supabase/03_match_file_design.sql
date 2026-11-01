@@ -10,6 +10,7 @@
 --  * the multivalued attribute "specialisation" of Technician gets its own
 --    table Technician_specialisation (one row per skill)
 --  * values that only the screens use move into the "details" JSON column
+--  * the unused user column access_level is removed
 -- ============================================================
 
 -- small helpers (removed again at the end)
@@ -76,6 +77,9 @@ alter table service_job       alter column fault_description type varchar(500);
 alter table service_job       alter column resolution_notes  type varchar(500);
 alter table service_visit_log alter column visit_notes       type varchar(500);
 alter table audit_log         alter column detail            type varchar(500);
+
+-- 5b) "access_level" is not part of the File Design (a user's rights come from the role and its permissions)
+alter table "user" drop column if exists access_level;
 
 -- 6) multivalued attribute: one row per technician skill
 create table if not exists technician_specialisation (

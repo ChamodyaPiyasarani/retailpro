@@ -13,7 +13,6 @@ create table if not exists "user" (
   is_active boolean,
   is_locked boolean,
   created_at timestamp,
-  access_level varchar(30),
   department varchar(50),
   last_login_at timestamp,
   role_id bigint

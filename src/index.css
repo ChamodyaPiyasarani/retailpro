@@ -759,7 +759,7 @@ body {
    Alerts / Toasts
    ============================================================ */
 .toast-container {
-  position: fixed; bottom: 24px; right: 24px;
+  position: fixed; top: 24px; right: 24px;
   z-index: 1000; display: flex; flex-direction: column; gap: 10px;
 }
 .toast {

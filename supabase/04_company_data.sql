@@ -20,12 +20,12 @@ insert into role (role_name, description, is_active) select 'Storekeeper', 'Stor
 insert into role (role_name, description, is_active) select 'Purchasing Manager', 'Purchasing Manager of Rajida Holdings', true where not exists (select 1 from role where role_name = 'Purchasing Manager');
 insert into role (role_name, description, is_active) select 'Finance Manager', 'Finance Manager of Rajida Holdings', true where not exists (select 1 from role where role_name = 'Finance Manager');
 insert into role (role_name, description, is_active) select 'Technician / Service Engineer', 'Technician / Service Engineer of Rajida Holdings', true where not exists (select 1 from role where role_name = 'Technician / Service Engineer');
-update "user" set full_name = 'Amara Silva', username = 'amara.s', phone = '0771234501', department = 'Management', access_level = 'full', user_type = 'admin', role_id = (select min(role_id) from role where role_name = 'Admin / Manager'), is_active = true, is_locked = false where lower(email) = 'admin@gmail.com';
-update "user" set full_name = 'Kamal Perera', username = 'kamal.p', phone = '0771234502', department = 'Sales', access_level = 'standard', user_type = 'sales', role_id = (select min(role_id) from role where role_name = 'Sales Staff / Cashier'), is_active = true, is_locked = false where lower(email) = 'cashier@gmail.com';
-update "user" set full_name = 'Nimal Fernando', username = 'nimal.f', phone = '0771234503', department = 'Stores', access_level = 'standard', user_type = 'storekeeper', role_id = (select min(role_id) from role where role_name = 'Storekeeper'), is_active = true, is_locked = false where lower(email) = 'storekeeper@gmail.com';
-update "user" set full_name = 'Dilshan Ranjith', username = 'dilshan.r', phone = '0771234504', department = 'Purchasing', access_level = 'standard', user_type = 'purchase', role_id = (select min(role_id) from role where role_name = 'Purchasing Manager'), is_active = true, is_locked = false where lower(email) = 'purchase@gmail.com';
-update "user" set full_name = 'Sanduni Perera', username = 'sanduni.p', phone = '0771234505', department = 'Finance', access_level = 'standard', user_type = 'finance', role_id = (select min(role_id) from role where role_name = 'Finance Manager'), is_active = true, is_locked = false where lower(email) = 'finance@gmail.com';
-update "user" set full_name = 'Ruwan Jayasena', username = 'ruwan.j', phone = '0771234506', department = 'Service', access_level = 'standard', user_type = 'technician', role_id = (select min(role_id) from role where role_name = 'Technician / Service Engineer'), is_active = true, is_locked = false where lower(email) = 'tech@gmail.com';
+update "user" set full_name = 'Amara Silva', username = 'amara.s', phone = '0771234501', department = 'Management', user_type = 'admin', role_id = (select min(role_id) from role where role_name = 'Admin / Manager'), is_active = true, is_locked = false where lower(email) = 'admin@gmail.com';
+update "user" set full_name = 'Kamal Perera', username = 'kamal.p', phone = '0771234502', department = 'Sales', user_type = 'sales', role_id = (select min(role_id) from role where role_name = 'Sales Staff / Cashier'), is_active = true, is_locked = false where lower(email) = 'cashier@gmail.com';
+update "user" set full_name = 'Nimal Fernando', username = 'nimal.f', phone = '0771234503', department = 'Stores', user_type = 'storekeeper', role_id = (select min(role_id) from role where role_name = 'Storekeeper'), is_active = true, is_locked = false where lower(email) = 'storekeeper@gmail.com';
+update "user" set full_name = 'Dilshan Ranjith', username = 'dilshan.r', phone = '0771234504', department = 'Purchasing', user_type = 'purchase', role_id = (select min(role_id) from role where role_name = 'Purchasing Manager'), is_active = true, is_locked = false where lower(email) = 'purchase@gmail.com';
+update "user" set full_name = 'Sanduni Perera', username = 'sanduni.p', phone = '0771234505', department = 'Finance', user_type = 'finance', role_id = (select min(role_id) from role where role_name = 'Finance Manager'), is_active = true, is_locked = false where lower(email) = 'finance@gmail.com';
+update "user" set full_name = 'Ruwan Jayasena', username = 'ruwan.j', phone = '0771234506', department = 'Service', user_type = 'technician', role_id = (select min(role_id) from role where role_name = 'Technician / Service Engineer'), is_active = true, is_locked = false where lower(email) = 'tech@gmail.com';
 
 -- 3) permissions (pages and buttons) and which role has them
 delete from role_permission;
@@ -255,26 +255,26 @@ insert into technician_specialisation (technician_id, specialisation) values
 (1, 'maintenance');
 
 insert into system_setting (setting_id, setting_key, setting_value, category, warranty_months, warranty_terms, updated_at, user_id) values
-(1, 'businessName', 'Rajida Holdings (Pvt) Ltd', 'general', null, null, now() - interval '15173 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com')),
-(2, 'taxId', 'VAT-88492019-LK', 'general', null, null, now() - interval '15173 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com')),
-(3, 'currency', 'LKR (Rs.)', 'general', null, null, now() - interval '15173 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com')),
-(4, 'taxRate', '15', 'general', null, null, now() - interval '15173 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com')),
-(5, 'invoicePrefix', 'INV-', 'general', null, null, now() - interval '15173 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com')),
-(6, 'poPrefix', 'PO-', 'general', null, null, now() - interval '15173 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com')),
-(7, 'servicePrefix', 'JOB-', 'general', null, null, now() - interval '15173 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com')),
-(8, 'lowStockThreshold', '5', 'general', null, null, now() - interval '15173 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com')),
-(9, 'warrantyMonths', '12', 'warranty', 12, null, now() - interval '15173 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com')),
-(10, 'warrantyTerms', 'Covers manufacturing defects. Physical damage, burns and liquid damage are not covered.', 'warranty', null, 'Covers manufacturing defects. Physical damage, burns and liquid damage are not covered.', now() - interval '15173 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com')),
-(11, 'returnWindowDays', '14', 'warranty', null, null, now() - interval '15173 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com')),
-(12, 'purchaseBudgetLimit', '2000000', 'approval', null, null, now() - interval '15173 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com')),
-(13, 'poApprovalLimit', '1000000', 'approval', null, null, now() - interval '15173 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com')),
-(14, 'refundApprovalLimit', '150000', 'approval', null, null, now() - interval '15173 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com')),
-(15, 'creditApprovalLimit', '300000', 'approval', null, null, now() - interval '15173 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com')),
-(16, 'technicianMaxJobs', '3', 'approval', null, null, now() - interval '15173 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com')),
-(17, 'enableWarrantyCheck', 'true', 'warranty', null, null, now() - interval '15173 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com')),
-(18, 'autoAssignTechnician', 'false', 'general', null, null, now() - interval '15173 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com')),
-(19, 'emailAlerts', 'true', 'general', null, null, now() - interval '15173 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com')),
-(20, 'smsAlerts', 'false', 'general', null, null, now() - interval '15173 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com'));
+(1, 'businessName', 'Rajida Holdings (Pvt) Ltd', 'general', null, null, now() - interval '14460 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com')),
+(2, 'taxId', 'VAT-88492019-LK', 'general', null, null, now() - interval '14460 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com')),
+(3, 'currency', 'LKR (Rs.)', 'general', null, null, now() - interval '14460 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com')),
+(4, 'taxRate', '15', 'general', null, null, now() - interval '14460 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com')),
+(5, 'invoicePrefix', 'INV-', 'general', null, null, now() - interval '14460 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com')),
+(6, 'poPrefix', 'PO-', 'general', null, null, now() - interval '14460 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com')),
+(7, 'servicePrefix', 'JOB-', 'general', null, null, now() - interval '14460 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com')),
+(8, 'lowStockThreshold', '5', 'general', null, null, now() - interval '14460 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com')),
+(9, 'warrantyMonths', '12', 'warranty', 12, null, now() - interval '14460 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com')),
+(10, 'warrantyTerms', 'Covers manufacturing defects. Physical damage, burns and liquid damage are not covered.', 'warranty', null, 'Covers manufacturing defects. Physical damage, burns and liquid damage are not covered.', now() - interval '14460 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com')),
+(11, 'returnWindowDays', '14', 'warranty', null, null, now() - interval '14460 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com')),
+(12, 'purchaseBudgetLimit', '2000000', 'approval', null, null, now() - interval '14460 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com')),
+(13, 'poApprovalLimit', '1000000', 'approval', null, null, now() - interval '14460 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com')),
+(14, 'refundApprovalLimit', '150000', 'approval', null, null, now() - interval '14460 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com')),
+(15, 'creditApprovalLimit', '300000', 'approval', null, null, now() - interval '14460 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com')),
+(16, 'technicianMaxJobs', '3', 'approval', null, null, now() - interval '14460 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com')),
+(17, 'enableWarrantyCheck', 'true', 'warranty', null, null, now() - interval '14460 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com')),
+(18, 'autoAssignTechnician', 'false', 'general', null, null, now() - interval '14460 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com')),
+(19, 'emailAlerts', 'true', 'general', null, null, now() - interval '14460 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com')),
+(20, 'smsAlerts', 'false', 'general', null, null, now() - interval '14460 minutes', (select user_id from "user" where lower(email) = 'admin@gmail.com'));
 
 insert into category (category_id, category_name, description, parent_category_id, details) values
 (1, 'Processors', 'Desktop processors (Intel and AMD)', 7, '{"icon":"🔲"}'::jsonb),
@@ -1088,6 +1088,10 @@ update stock_alert set details = replace(details::text, '"U003"', '"' || (select
 update stock_alert set details = replace(details::text, '"U004"', '"' || (select user_id from "user" where lower(email) = 'purchase@gmail.com')::text || '"')::jsonb where details::text like '%"U004"%' and exists (select 1 from "user" where lower(email) = 'purchase@gmail.com');
 update stock_alert set details = replace(details::text, '"U005"', '"' || (select user_id from "user" where lower(email) = 'finance@gmail.com')::text || '"')::jsonb where details::text like '%"U005"%' and exists (select 1 from "user" where lower(email) = 'finance@gmail.com');
 update stock_alert set details = replace(details::text, '"U006"', '"' || (select user_id from "user" where lower(email) = 'tech@gmail.com')::text || '"')::jsonb where details::text like '%"U006"%' and exists (select 1 from "user" where lower(email) = 'tech@gmail.com');
+
+-- 4c) dates inside the details column -> relative to the day this file is run
+update service_job set details = (select jsonb_object_agg(k, case when jsonb_typeof(v) = 'string' and v #>> '{}' ~ '^\d{4}-\d{2}-\d{2}$' then to_jsonb(((v #>> '{}')::date + (current_date - date '2026-10-31'))::text) else v end) from jsonb_each(details) as e(k, v)) where details is not null and details <> '{}'::jsonb;
+update exchange_request set details = (select jsonb_object_agg(k, case when jsonb_typeof(v) = 'string' and v #>> '{}' ~ '^\d{4}-\d{2}-\d{2}$' then to_jsonb(((v #>> '{}')::date + (current_date - date '2026-10-31'))::text) else v end) from jsonb_each(details) as e(k, v)) where details is not null and details <> '{}'::jsonb;
 
 -- 5) next record numbers continue after the highest one
 select setval(pg_get_serial_sequence('public.role', 'role_id'), greatest(coalesce((select max(role_id) from role), 0), 1), (select count(*) > 0 from role));

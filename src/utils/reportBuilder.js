@@ -59,7 +59,12 @@ export function purchases() {
 
 // ---------- Optional date range (From / To on the Reports page) ----------
 let RANGE = null;
-const inRange = (d) => !RANGE || (!!d && d.slice(0, 10) >= RANGE.from && d.slice(0, 10) <= RANGE.to);
+// no range chosen = the last 6 months shown on the report (from the 1st day of the oldest month)
+const inRange = (d) => {
+  if (!d) return !RANGE;          // a record without a date is only left out when a range is chosen
+  if (RANGE) return d.slice(0, 10) >= RANGE.from && d.slice(0, 10) <= RANGE.to;
+  return d.slice(0, 10) >= `${lastSixMonths()[0].key}-01`;
+};
 function periodMonths() {
   if (!RANGE) return lastSixMonths();
   const out = [];

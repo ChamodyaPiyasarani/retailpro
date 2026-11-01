@@ -306,7 +306,7 @@ export function toTables(state) {
   }
   for (const u of state.users) {
     T.user.push({ user_id: u.id, username: u.username || null, full_name: u.name, email: u.email, phone: u.phone || null, user_type: u.role,
-      is_active: u.deleted ? false : true, is_locked: u.active === false, access_level: u.accessLevel || null, department: u.department || null,
+      is_active: u.deleted ? false : true, is_locked: u.active === false, department: u.department || null,
       role_id: state.roles[u.role]?.dbId || null });
     // multivalued attribute: one technician_specialisation row per skill
     if (u.technicianId) (u.skills || []).forEach(sk => T.technician_specialisation.push({ technician_id: u.technicianId, specialisation: sk }));
@@ -473,7 +473,7 @@ export function fromTables(R) {
     const role = roleById[u.role_id] || roleKeyFrom(u.user_type) || 'sales';
     const t = techByUser[u.user_id];
     return { id: u.user_id, name: u.full_name || u.email, email: u.email, phone: u.phone, role, department: u.department,
-      username: u.username, accessLevel: u.access_level, createdAt: u.created_at,
+      username: u.username, createdAt: u.created_at,
       avatar: AVATARS[role] || '👤', active: u.is_locked !== true, lastLogin: u.last_login_at,
       ...(t ? { technicianId: t.technician_id, skills: skillRows.filter(x => x.technician_id === t.technician_id).map(x => x.specialisation),
         certification: t.certification_level, zone: t.assigned_zone } : {}) };
@@ -589,8 +589,11 @@ export function fromTables(R) {
   }
   for (const k of Object.keys(ROLE_LABELS)) rolePermissions[k] = rolePermissions[k] || [];
 
+  // every staff e-mail in the database (also removed staff), so a new account never reuses one
+  const staffEmails = g('user').map(u => String(u.email || '').trim().toLowerCase()).filter(Boolean);
+
   return {
-    permissions, rolePermissions, settingsMeta,
+    permissions, rolePermissions, settingsMeta, staffEmails,
     users, roles, settings, categories, suppliers: from(E.supplier, 'supplier'), products, customers, creditRequests,
     discounts: from(E.discount, 'discount'), batches: from(E.batch, 'batch'), quotations: from(E.quotation, 'quotation'),
     salesOrders, purchaseOrders, serviceJobs, spareRequests: from(E.sparePartRequest, 'spare_part_request'),
