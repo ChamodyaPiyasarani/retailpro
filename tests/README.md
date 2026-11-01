@@ -14,6 +14,7 @@ npm test
 | `store.test.js` | Store helpers: loading/clearing, lookups, new record numbers, low stock, overdue POs, outstanding invoices, warranty check, promotion codes, phone/e-mail validation, available technicians, transactions, newest-first and low-stock-first ordering |
 | `reports.test.js` | The six management reports, date range check, totals add up, CSV export |
 | `sync.test.js` | Loading from and saving to Supabase (with a fake in-memory Supabase): only changed rows are saved, new rows inserted parents first, removed rows deleted children first, staff are deactivated (not deleted), technician rows are never deleted, skill rows use the two-column key, errors show "Not saved", sign-out |
+| `dashboard.test.js` | What each role sees on the dashboard: only the Admin / Manager gets the overall dashboard, revenue and payments only for the manager and finance, the technician sees only his own jobs |
 | `staffAccounts.test.js` | Creating staff accounts (password length, duplicate e-mail, errors, role saved) and the demo accounts on the login page |
 
 `fixtures/company_data.json` is a copy of every table after running the SQL files

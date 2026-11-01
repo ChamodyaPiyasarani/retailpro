@@ -22,6 +22,19 @@ import { format } from 'date-fns';
 
 const COLORS = ['#3b82f6','#8b5cf6','#10b981','#f59e0b','#ef4444','#6366f1'];
 
+// What each role sees on its dashboard.
+// Only the Admin / Manager gets the overall system dashboard (use case "View overall system dashboard");
+// every other role gets a home page with the figures of its own work only.
+export const DASHBOARD_VIEW = {
+  admin:       { overall: true, cards: ['revenue', 'orders', 'jobs', 'payments', 'lowStock', 'customers', 'pendingPOs', 'complaints'], charts: true,  alerts: ['lowStock', 'overduePOs', 'complaints'] },
+  sales:       { cards: ['orders', 'customers', 'lowStock', 'complaints'], charts: true,  alerts: ['lowStock', 'complaints'] },
+  storekeeper: { cards: ['lowStock', 'pendingPOs', 'jobs'],               charts: false, alerts: ['lowStock'] },
+  purchase:    { cards: ['pendingPOs', 'lowStock'],                       charts: false, alerts: ['lowStock', 'overduePOs'] },
+  finance:     { cards: ['revenue', 'payments', 'orders'],                charts: true,  alerts: [] },
+  technician:  { cards: ['jobs'],                                         charts: false, alerts: [] },
+};
+const NO_VIEW = { cards: [], charts: false, alerts: [] };
+
 const CustomTooltip = ({ active, payload, label }) => {
   if (active && payload && payload.length) {
     return (
@@ -102,7 +115,11 @@ export default function DashboardPage() {
   const newCustomers = CUSTOMERS.filter(c => (c.createdAt || '').startsWith(monthKey)).length;
 
 
-  const recentActivity = AUDIT_LOG.slice(0, 6);
+  const view = DASHBOARD_VIEW[user?.role] || NO_VIEW;
+  const shows = (k) => view.cards.includes(k);
+  const alertOn = (k) => view.alerts.includes(k);
+  // The manager sees everyone's latest actions; other staff see only their own
+  const recentActivity = (view.overall ? AUDIT_LOG : AUDIT_LOG.filter(a => a.userId === user?.id)).slice(0, 6);
 
   const activityColor = (action) => {
     if (action.includes('SALE') || action.includes('PAYMENT')) return 'var(--success-500)';
@@ -117,7 +134,7 @@ export default function DashboardPage() {
       <div className="page-header">
         <div className="page-header-left">
           <h1 className="page-title">Good {new Date().getHours() < 12 ? 'Morning' : new Date().getHours() < 17 ? 'Afternoon' : 'Evening'}, {user?.name?.split(' ')[0]} 👋</h1>
-          <p className="page-subtitle">Here's what's happening with your business today · {format(new Date(),'EEEE, MMMM d, yyyy')}</p>
+          <p id="dashboard-subtitle" className="page-subtitle">{view.overall ? "Overall system dashboard · here's what's happening with your business today" : 'Your work today'} · {format(new Date(),'EEEE, MMMM d, yyyy')}</p>
         </div>
         <div className="page-header-actions">
           <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Updated {format(refreshedAt, 'hh:mm:ss a')}</span>
@@ -125,7 +142,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {!activityToday && (
+      {view.overall && !activityToday && (
         <div id="no-activity-today" className="alert alert-info" style={{ marginBottom: 16 }}>
           <AlertTriangle size={16} /> <span>No activity recorded for today.</span>
         </div>
@@ -154,21 +171,21 @@ export default function DashboardPage() {
       )}
 
       {/* Alerts */}
-      {(lowStock.length > 0 || overduePOs.length > 0 || openComplaints.length > 0) && (
+      {((alertOn('lowStock') && lowStock.length > 0) || (alertOn('overduePOs') && overduePOs.length > 0) || (alertOn('complaints') && openComplaints.length > 0)) && (
         <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:20 }}>
-          {lowStock.length > 0 && (
+          {alertOn('lowStock') && lowStock.length > 0 && (
             <div className="alert alert-warning" style={{ cursor:'pointer' }} onClick={() => navigate('/stock', { state: { filter: 'low' } })}>
               <AlertTriangle size={16} />
               <span><strong>{lowStock.length} products</strong> are at or below minimum stock level. <span style={{ textDecoration:'underline' }}>View →</span></span>
             </div>
           )}
-          {overduePOs.length > 0 && (
+          {alertOn('overduePOs') && overduePOs.length > 0 && (
             <div className="alert alert-danger" style={{ cursor:'pointer' }} onClick={() => navigate('/purchase-orders')}>
               <AlertTriangle size={16} />
               <span><strong>{overduePOs.length} purchase order(s)</strong> are overdue. <span style={{ textDecoration:'underline' }}>View →</span></span>
             </div>
           )}
-          {openComplaints.length > 0 && (
+          {alertOn('complaints') && openComplaints.length > 0 && (
             <div className="alert alert-info">
               <AlertTriangle size={16} />
               <span><strong>{openComplaints.length} complaint(s)</strong> are open and require attention.</span>
@@ -178,45 +195,48 @@ export default function DashboardPage() {
       )}
 
       {/* KPI Grid */}
-      <div className="stat-grid">
-        <StatCard
+      {view.cards.length > 0 && (
+      <div className="stat-grid" id="dashboard-cards">
+        {shows('revenue') && <StatCard
           label="Total Revenue" value={fmt(totalRevenue)} icon={TrendingUp}
           colorClass="primary" change={revChange === null ? 'No sales last week' : `${revChange >= 0 ? '+' : ''}${revChange}% vs last week`} changeDir={revChange === null || revChange >= 0 ? 'up' : 'down'}
-        />
-        <StatCard
+        />}
+        {shows('orders') && <StatCard
           label="Sales Orders" value={SALES_ORDERS.length} icon={ShoppingCart}
           colorClass="success" change={`${outstanding.length} outstanding`} changeDir="up"
-        />
-        <StatCard
+        />}
+        {shows('jobs') && <StatCard
           label={user?.role === 'technician' ? 'My Active Jobs' : 'Active Service Jobs'} value={pendingJobs.length} icon={Wrench}
           colorClass="warning"
-        />
-        <StatCard
+        />}
+        {shows('payments') && <StatCard
           label="Payments Collected" value={fmt(totalPaid)} icon={CreditCard}
           colorClass="accent" change={`${fmt(paidThisMonth)} this month`} changeDir="up"
-        />
-        <StatCard
+        />}
+        {shows('lowStock') && <StatCard
           label="Low Stock Items" value={lowStock.length} icon={Package}
           colorClass={lowStock.length > 0 ? 'danger' : 'success'}
           change={lowStock.length > 0 ? 'Action required' : 'All stocked'}
           changeDir={lowStock.length > 0 ? 'down' : 'up'}
-        />
-        <StatCard
+        />}
+        {shows('customers') && <StatCard
           label="Total Customers" value={CUSTOMERS.length} icon={Users}
           colorClass="primary" change={`+${newCustomers} this month`} changeDir="up"
-        />
-        <StatCard
+        />}
+        {shows('pendingPOs') && <StatCard
           label="Pending POs" value={PURCHASE_ORDERS.filter(p=>p.status!=='received').length} icon={Truck}
           colorClass="warning"
-        />
-        <StatCard
+        />}
+        {shows('complaints') && <StatCard
           label="Open Complaints" value={openComplaints.length} icon={AlertTriangle}
           colorClass={openComplaints.length > 0 ? 'danger' : 'success'}
-        />
+        />}
       </div>
+      )}
 
-      {/* Charts Row */}
-      <div className="dashboard-grid">
+      {/* Charts Row (sales figures: manager, sales and finance only) */}
+      {view.charts && (
+      <div className="dashboard-grid" id="dashboard-charts">
         {/* Revenue Chart */}
         <div className="chart-card">
           <div className="chart-title">Revenue — Last 7 Days</div>
@@ -253,6 +273,7 @@ export default function DashboardPage() {
           </ResponsiveContainer>
         </div>
       </div>
+      )}
 
       {/* Bottom Row */}
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:20 }}>
@@ -260,11 +281,12 @@ export default function DashboardPage() {
         <div className="card">
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
             <div>
-              <div style={{ fontWeight:700, fontSize:14 }}>Recent Activity</div>
-              <div style={{ fontSize:12, color:'var(--text-muted)' }}>Latest system actions</div>
+              <div style={{ fontWeight:700, fontSize:14 }}>{view.overall ? 'Recent Activity' : 'My Recent Activity'}</div>
+              <div style={{ fontSize:12, color:'var(--text-muted)' }}>{view.overall ? 'Latest system actions' : 'Your latest actions'}</div>
             </div>
           </div>
-          <div className="activity-list">
+          {recentActivity.length === 0 && <div id="no-recent-activity" style={{ fontSize:13, color:'var(--text-muted)' }}>No recent actions yet.</div>}
+          <div className="activity-list" id="recent-activity">
             {recentActivity.map(a => (
               <div key={a.id} className="activity-item">
                 <div className="activity-dot" style={{ background: activityColor(a.action) }} />
