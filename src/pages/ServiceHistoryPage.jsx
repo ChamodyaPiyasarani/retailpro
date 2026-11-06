@@ -1,71 +1,35 @@
-// Service History page — all completed jobs with full log
-import { SERVICE_JOBS, CUSTOMERS, PRODUCTS, USERS, fmt, getCustomer, getProduct, getUser, newestFirst } from '../data/store';
+// Technician Form – SD "View service history"
 import { useState } from 'react';
-import { useAuth } from '../context/AuthContext';
-import { Search } from 'lucide-react';
+import ServiceJob from '../classes/ServiceJob';
+import { readAll, money } from '../classes/db';
+import { PageHeader, Field, Badge, useLoad, useAction, Loading, Empty, nameOf } from '../components/ui';
 
 export default function ServiceHistoryPage() {
-  const { user } = useAuth();
-  const [q, setQ] = useState('');
-  // Technicians see only their own completed jobs; other roles see all
-  const mine = user?.role === 'technician';
-  const completed = SERVICE_JOBS.filter(j => j.status === 'completed' && (!mine || j.assignedTo === user.id));
-
-  const filtered = completed.filter(j => {
-    const c = getCustomer(j.customerId);
-    return !q || j.id.toLowerCase().includes(q.toLowerCase()) || c?.name.toLowerCase().includes(q.toLowerCase());
-  });
-
+  const { data, error } = useLoad(async () => ({ customers: await readAll('customer', {}, 'name'), products: await readAll('product', {}, 'product_name') }));
+  const { act } = useAction();
+  const [f, setF] = useState({ product_id: '', customer_id: '' });
+  const [rows, setRows] = useState(null);
+  if (!data) return <Loading error={error} />;
+  const view = async () => { const r = await act(() => ServiceJob.viewHistory(f)); if (r) setRows(r); };
   return (
     <div>
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">Service History</h1>
-          <p className="page-subtitle">{completed.length} completed jobs{mine ? ' (yours)' : ''}</p>
+      <PageHeader title="Service History" subtitle="Past jobs of a product or a customer, with the repair notes" />
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="form-row-3">
+          <Field label="Product"><select id="sh-product" className="form-select" value={f.product_id} onChange={e => setF({ ...f, product_id: e.target.value })}><option value="">— any —</option>{data.products.map(p => <option key={p.product_id} value={p.product_id}>{p.product_name}</option>)}</select></Field>
+          <Field label="Customer"><select id="sh-customer" className="form-select" value={f.customer_id} onChange={e => setF({ ...f, customer_id: e.target.value })}><option value="">— any —</option>{data.customers.map(c => <option key={c.customer_id} value={c.customer_id}>{c.name}</option>)}</select></Field>
+          <div className="form-group" style={{ alignSelf: 'flex-end' }}><button id="sh-view" className="btn btn-primary" disabled={!f.product_id && !f.customer_id} onClick={view}>View history</button></div>
         </div>
       </div>
-
-      <div style={{ marginBottom:16 }}>
-        <div className="search-bar" style={{ maxWidth:400 }}>
-          <Search size={14} color="var(--text-muted)"/>
-          <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search job ID or customer…" />
+      {rows && (rows.length === 0 ? <Empty text="No service history" /> : rows.map(j => (
+        <div key={j.job_id} className="card" style={{ marginBottom: 10 }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}><b>JOB-{j.job_id}</b> <Badge text={j.status} /> <span>{j.request_date}</span>
+            <span>{nameOf(data.customers, 'customer_id', j.customer_id, 'name')}</span> – <span>{nameOf(data.products, 'product_id', j.product_id, 'product_name')}</span>
+            {Number(j.service_charge) > 0 && <span>charge {money(j.service_charge)}</span>}</div>
+          <div style={{ fontSize: 13, margin: '6px 0' }}>{j.job_type}: {j.fault}</div>
+          {j.notes.map(n => <div key={n.note_id} style={{ fontSize: 12 }}>• {n.note_date}: {n.details}</div>)}
         </div>
-      </div>
-
-      <div className="table-container">
-        <table className="table">
-          <thead>
-            <tr><th>Job</th><th>Type</th><th>Customer</th><th>Product</th><th>Technician</th><th>Completed</th><th>Parts Used</th><th>Warranty</th></tr>
-          </thead>
-          <tbody>
-            {filtered.length === 0 && (
-              <tr><td colSpan={8}><div className="empty-state"><div className="empty-state-icon">📋</div><div className="empty-state-title">No completed jobs yet</div></div></td></tr>
-            )}
-            {newestFirst(filtered, 'completedAt').map(j => {
-              const c = getCustomer(j.customerId);
-              const p = getProduct(j.productId);
-              const t = getUser(j.assignedTo);
-              return (
-                <tr key={j.id}>
-                  <td><span style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:12 }}>{j.id}</span></td>
-                  <td><span className="badge badge-primary">{j.type}</span></td>
-                  <td style={{ fontWeight:600 }}>{c?.name}</td>
-                  <td style={{ fontSize:13 }}>{p?.emoji} {p?.name}</td>
-                  <td style={{ fontSize:13 }}>{t ? `${t.avatar} ${t.name}` : '—'}</td>
-                  <td style={{ fontSize:12 }}>{j.completedAt}</td>
-                  <td>
-                    {j.partsUsed?.length > 0
-                      ? <span className="badge badge-warning">{j.partsUsed.length} part{j.partsUsed.length!==1?'s':''}</span>
-                      : <span className="badge badge-gray">None</span>
-                    }
-                  </td>
-                  <td><span className={`badge badge-${j.warrantyValid?'success':'danger'}`}>{j.warrantyValid?'Valid':'Expired'}</span></td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      )))}
     </div>
   );
 }

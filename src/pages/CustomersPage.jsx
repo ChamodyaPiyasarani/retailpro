@@ -1,306 +1,74 @@
+// Customer Form – SD "Manage customers" and SD "View customer purchase history"
 import { useState } from 'react';
-import { Search, Plus, Edit2, Phone, Mail, MapPin, CreditCard, History, Trash2, ShieldCheck } from 'lucide-react';
-import { CUSTOMERS, SALES_ORDERS, SERVICE_JOBS, RETURNS, COMPLAINTS, CREDIT_REQUESTS, fmt, newCustId, newCreditReqId, isValidPhone, isValidEmail, today } from '../data/store';
-import { useToast } from '../context/ToastContext';
+import { Plus, Pencil, Search, History } from 'lucide-react';
+import Customer from '../classes/Customer';
+import InvoiceView from '../components/InvoiceView';
+import { readAll, money } from '../classes/db';
 import { useAuth } from '../context/AuthContext';
-
-function CustomerModal({ customer, onClose, onSave, saving = false, canSetLimit = true }) {
-  const [form, setForm] = useState(customer || { name:'', phone:'', email:'', address:'', customerType:'individual', creditLimit: canSetLimit ? 50000 : 0, creditRequest:false, requestedLimit:100000 });
-  const badPhone = form.phone && !isValidPhone(form.phone.replace(/\s/g, ''));
-  const badEmail = form.email && !isValidEmail(form.email);
-  const set = (k,v) => setForm(f => ({ ...f, [k]:v }));
-
-  return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal">
-        <div className="modal-header">
-          <span style={{ fontSize:20 }}>{customer ? '✏️' : '➕'}</span>
-          <div className="modal-title">{customer ? 'Edit Customer' : 'New Customer'}</div>
-        </div>
-        <div className="modal-body">
-          <div className="form-row-2">
-            <div className="form-group">
-              <label className="form-label">Full Name *</label>
-              <input className="form-input" value={form.name} onChange={e=>set('name',e.target.value)} placeholder="Customer name" />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Phone *</label>
-              <input id="cust-phone" className="form-input" value={form.phone} onChange={e=>set('phone',e.target.value)} placeholder="077XXXXXXX" />
-              {badPhone && <div style={{ fontSize:11, color:'var(--danger-400)' }}>Use 10 digits starting with 0, or +94 and 9 digits</div>}
-            </div>
-          </div>
-          <div className="form-row-2">
-            <div className="form-group">
-              <label className="form-label">Email</label>
-              <input id="cust-email" className="form-input" type="email" value={form.email} onChange={e=>set('email',e.target.value)} placeholder="email@example.com" />
-              {badEmail && <div style={{ fontSize:11, color:'var(--danger-400)' }}>E-mail format is not valid</div>}
-            </div>
-            {canSetLimit ? (
-              <div className="form-group">
-                <label className="form-label">Credit Limit (LKR)</label>
-                <input className="form-input" type="number" value={form.creditLimit} onChange={e=>set('creditLimit',+e.target.value)} />
-              </div>
-            ) : !customer ? (
-              <div className="form-group">
-                <label className="form-label" style={{ display:'flex', gap:6, alignItems:'center' }}>
-                  <input id="cust-credit-request" type="checkbox" checked={form.creditRequest} onChange={e=>set('creditRequest',e.target.checked)} /> Request a credit account
-                </label>
-                {form.creditRequest && <input id="cust-requested-limit" className="form-input" type="number" min={0} value={form.requestedLimit} onChange={e=>set('requestedLimit',+e.target.value)} placeholder="Requested limit (LKR)" />}
-                <div style={{ fontSize:11, color:'var(--text-muted)' }}>Finance approves credit limits</div>
-              </div>
-            ) : (
-              <div className="form-group"><label className="form-label">Credit Limit</label><div style={{ fontSize:13 }}>{fmt(form.creditLimit)} (set by Finance)</div></div>
-            )}
-          </div>
-          <div className="form-group">
-            <label className="form-label">Customer Type</label>
-            <select id="cust-type" className="form-select" value={form.customerType || 'individual'} onChange={e=>set('customerType',e.target.value)}>
-              <option value="individual">Individual</option>
-              <option value="business">Business</option>
-              <option value="government">Government / Institution</option>
-            </select>
-          </div>
-          <div className="form-group">
-            <label className="form-label">Address</label>
-            <textarea className="form-textarea" value={form.address} onChange={e=>set('address',e.target.value)} rows={2} placeholder="Street, City" />
-          </div>
-        </div>
-        <div className="modal-footer">
-          <button className="btn btn-outline" onClick={onClose}>Cancel</button>
-          <button id="btn-save-customer" className="btn btn-primary" onClick={() => onSave(form)} disabled={!form.name || !form.phone || saving}>
-            {saving ? 'Saving…' : customer ? 'Save Changes' : 'Create Customer'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+import { PageHeader, Modal, Field, Badge, useLoad, useAction, Loading, Empty, nameOf } from '../components/ui';
 
 export default function CustomersPage() {
-  const toast = useToast();
-  const { user, canDo } = useAuth();
-  const [customers, setCustomers] = useState(() => [...CUSTOMERS]);
+  const { can } = useAuth();
   const [q, setQ] = useState('');
-  const [modal, setModal] = useState(null); // null | 'new' | customer obj
-  const [detail, setDetail] = useState(null);
-
-  const filtered = customers.filter(c =>
-    c.name.toLowerCase().includes(q.toLowerCase()) ||
-    c.phone.includes(q) ||
-    c.email?.toLowerCase().includes(q.toLowerCase())
-  );
-
-  const saving = false;
-  const syncGlobal = (list) => { CUSTOMERS.splice(0, CUSTOMERS.length, ...list); };
-
-  // SD 25: phone and e-mail are checked before saving; a credit request goes to Finance
-  const raiseCredit = (c, form) => {
-    if (modal !== 'new' || !form.creditRequest || !(form.requestedLimit > 0)) return '';
-    CREDIT_REQUESTS.push({ id: newCreditReqId(), customerId: c.id, currentLimit: c.creditLimit || 0, requestedLimit: form.requestedLimit,
-      requestDate: today(), status: 'pending', note: 'Requested at registration', requestedBy: user?.id });
-    return ' – credit request sent to Finance';
+  const { data, error, reload } = useLoad(async () => ({ customers: await Customer.search(q), products: await readAll('product') }), [q]);
+  const { act, busy } = useAction();
+  const [form, setForm] = useState(null);
+  const [hist, setHist] = useState(null);
+  const [view, setView] = useState(null);
+  if (!data) return <Loading error={error} />;
+  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+  const save = async () => { if (await act(() => form.customer_id ? Customer.update(form.customer_id, form) : Customer.create(form), 'Customer saved')) { setForm(null); reload(); } };
+  const history = async (c) => {
+    const h = await act(async () => ({ orders: await Customer.viewPurchaseHistory(c.customer_id), jobs: await readAll('service_job', { customer_id: c.customer_id }, 'job_id') }));
+    if (h) setHist({ c, ...h });
   };
-  const handleSave = async (input) => {
-    const { creditRequest, requestedLimit, ...form } = input;
-    form.phone = (form.phone || '').replace(/\s/g, '');
-    if (!isValidPhone(form.phone) || (form.email && !isValidEmail(form.email))) { toast.error('Invalid phone number or e-mail'); return; }
-    if (modal === 'new' && customers.some(c => c.phone === form.phone)) { toast.error('A customer with this phone number already exists'); return; }
-    const req = { creditRequest, requestedLimit };
-    if (modal === 'new') {
-      const newC = { ...form, id: newCustId(), creditLimit: form.creditLimit || 0, creditUsed:0, balance:0, createdAt: new Date().toISOString().slice(0,10) };
-      if (newC.creditLimit > 0) { newC.creditApprovedBy = user?.id; newC.creditReviewDate = today(); }   // credit_account.user_id / last_review_date
-      setCustomers(cs => [...cs, newC]);
-      CUSTOMERS.push(newC);
-      toast.success(`New customer registered – ${newC.id}${raiseCredit(newC, req)}`);
-    } else {
-      if (Number(form.creditLimit) !== Number(modal.creditLimit)) { form.creditApprovedBy = user?.id; form.creditReviewDate = today(); }
-      setCustomers(cs => cs.map(c => c.id === modal.id ? { ...c, ...form } : c));
-      const i = CUSTOMERS.findIndex(c => c.id === modal.id);
-      if (i !== -1) CUSTOMERS[i] = { ...CUSTOMERS[i], ...form };
-      toast.success('Customer updated');
-    }
-    setModal(null);
-  };
-
-  const handleDelete = async (c) => {
-    if (!confirm(`Are you sure you want to delete customer ${c.name}?`)) return;
-    // a customer with sales, jobs, returns or complaints is kept (the database links them)
-    const used = SALES_ORDERS.some(o => o.customerId === c.id) || SERVICE_JOBS.some(j => j.customerId === c.id) ||
-      RETURNS.some(r => r.customerId === c.id) || COMPLAINTS.some(x => x.customerId === c.id);
-    if (used) { toast.error('This customer has sales or other records, so it cannot be deleted.'); return; }
-    const list = customers.filter(x => x.id !== c.id);
-    syncGlobal(list);
-    setCustomers(list);
-    toast.success(`Customer ${c.name} deleted`);
-    if (detail?.id === c.id) setDetail(null);
-  };
-
-  const customerOrders = (id) => SALES_ORDERS.filter(o => o.customerId === id);
-
-  const availableCredit = (c) => c.creditLimit - c.creditUsed;
-  const creditPct = (c) => c.creditLimit > 0 ? Math.min(100, (c.creditUsed / c.creditLimit)*100) : 0;
-
   return (
     <div>
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">Customers</h1>
-          <p className="page-subtitle">{customers.length} registered customers</p>
-        </div>
-        <div className="page-header-actions">
-          {canDo('customer.add') && (
-            <button id="btn-new-customer" className="btn btn-primary" onClick={() => setModal('new')}>
-              <Plus size={15} /> New Customer
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Search */}
-      <div style={{ display:'flex', gap:12, marginBottom:20 }}>
-        <div className="search-bar" style={{ flex:1 }}>
-          <Search size={16} color="var(--text-muted)" />
-          <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search by name, phone, or email…" />
-        </div>
-      </div>
-
-      {/* Table */}
-      <div className="table-container">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Customer</th>
-              <th>Contact</th>
-              <th>Credit Limit</th>
-              <th>Credit Used</th>
-              <th>Available</th>
-              <th>Balance Owed</th>
-              <th>Orders</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.length === 0 && (
-              <tr><td colSpan={8}><div className="empty-state"><div className="empty-state-icon">👥</div><div className="empty-state-title">No customers found</div></div></td></tr>
-            )}
-            {filtered.map(c => (
-              <tr key={c.id}>
-                <td>
-                  <div style={{ fontWeight:600, color:'var(--text-primary)' }}>{c.name}</div>
-                  <div style={{ fontSize:11.5, color:'var(--text-muted)' }}>{c.id}</div>
-                </td>
-                <td>
-                  <div style={{ display:'flex', flexDirection:'column', gap:2 }}>
-                    <span style={{ display:'flex', alignItems:'center', gap:5, fontSize:13 }}><Phone size={12}/> {c.phone}</span>
-                    {c.email && <span style={{ display:'flex', alignItems:'center', gap:5, fontSize:12, color:'var(--text-muted)' }}><Mail size={11}/> {c.email}</span>}
-                  </div>
-                </td>
-                <td><span style={{ fontFamily:'var(--font-mono)', fontSize:13 }}>{fmt(c.creditLimit)}</span></td>
-                <td>
-                  <div>
-                    <span style={{ fontFamily:'var(--font-mono)', fontSize:13, color: c.creditUsed > 0 ? 'var(--warning-400)':'var(--text-secondary)' }}>{fmt(c.creditUsed)}</span>
-                    {c.creditLimit > 0 && (
-                      <div style={{ marginTop:3, height:4, background:'var(--bg-overlay)', borderRadius:4, width:80 }}>
-                        <div style={{ height:'100%', borderRadius:4, width:`${creditPct(c)}%`, background: creditPct(c)>80?'var(--danger-500)':creditPct(c)>50?'var(--warning-500)':'var(--success-500)', transition:'width .3s' }} />
-                      </div>
-                    )}
-                  </div>
-                </td>
-                <td><span style={{ fontFamily:'var(--font-mono)', fontSize:13, color:'var(--success-400)' }}>{fmt(availableCredit(c))}</span></td>
-                <td><span style={{ fontFamily:'var(--font-mono)', fontSize:13, color: c.balance>0?'var(--danger-400)':'var(--text-secondary)' }}>{fmt(c.balance)}</span></td>
-                <td>
-                  <span className="badge badge-primary">{customerOrders(c.id).length}</span>
-                </td>
-                <td>
-                  <div className="table-action-cell">
-                    <button className="btn btn-ghost btn-sm btn-icon" title="View Details" onClick={() => setDetail(c)}>
-                      <History size={14} />
-                    </button>
-                    {canDo('customer.edit') && <button className="btn btn-ghost btn-sm btn-icon" title="Edit Customer" onClick={() => setModal(c)}>
-                      <Edit2 size={14} />
-                    </button>}
-                    {canDo('customer.delete') && <button className="btn btn-ghost btn-sm btn-icon" style={{ color: 'var(--danger-400)' }} title="Delete Customer" onClick={() => handleDelete(c)}>
-                      <Trash2 size={14} />
-                    </button>}
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Modal */}
-      {modal && <CustomerModal customer={modal === 'new' ? null : modal} onClose={() => setModal(null)} onSave={handleSave} saving={saving} canSetLimit={canDo('credit.approve') || user?.role === 'admin'} />}
-
-      {/* Detail Drawer */}
-      {detail && (
-        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setDetail(null)}>
-          <div className="modal modal-lg">
-            <div className="modal-header">
-              <span style={{ fontSize:22 }}>👤</span>
-              <div className="modal-title">{detail.name}</div>
-              <button className="btn btn-ghost btn-sm" onClick={() => setDetail(null)}>✕</button>
-            </div>
-            <div className="modal-body">
-              <div className="form-row-2">
-                <div className="card-elevated" style={{ padding:16 }}>
-                  <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:8, fontWeight:700, textTransform:'uppercase', letterSpacing:.5 }}>Contact Info</div>
-                  <div style={{ display:'flex', flexDirection:'column', gap:8, fontSize:13 }}>
-                    <span style={{ display:'flex', gap:8, alignItems:'center', color:'var(--text-secondary)' }}><Phone size={13}/>{detail.phone}</span>
-                    <span style={{ display:'flex', gap:8, alignItems:'center', color:'var(--text-secondary)' }}><Mail size={13}/>{detail.email}</span>
-                    <span style={{ display:'flex', gap:8, alignItems:'center', color:'var(--text-secondary)' }}><MapPin size={13}/>{detail.address}</span>
-                    <span style={{ color:'var(--text-secondary)', textTransform:'capitalize' }}>Type: {detail.customerType || 'individual'}{detail.createdAt ? ` · registered ${detail.createdAt}` : ''}</span>
-                  </div>
-                </div>
-                <div className="card-elevated" style={{ padding:16 }}>
-                  <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:8, fontWeight:700, textTransform:'uppercase', letterSpacing:.5 }}>Credit Account</div>
-                  <div style={{ display:'flex', flexDirection:'column', gap:4, fontSize:13 }}>
-                    <div style={{ display:'flex', justifyContent:'space-between' }}><span className="text-muted">Limit</span><span style={{ fontFamily:'var(--font-mono)', fontWeight:700 }}>{fmt(detail.creditLimit)}</span></div>
-                    <div style={{ display:'flex', justifyContent:'space-between' }}><span className="text-muted">Used</span><span style={{ fontFamily:'var(--font-mono)', color:'var(--warning-400)' }}>{fmt(detail.creditUsed)}</span></div>
-                    <div style={{ display:'flex', justifyContent:'space-between' }}><span className="text-muted">Available</span><span style={{ fontFamily:'var(--font-mono)', color:'var(--success-400)' }}>{fmt(detail.creditLimit - detail.creditUsed)}</span></div>
-                    <div style={{ display:'flex', justifyContent:'space-between' }}><span className="text-muted">Balance Owed</span><span style={{ fontFamily:'var(--font-mono)', color: detail.balance>0?'var(--danger-400)':'var(--text-secondary)' }}>{fmt(detail.balance)}</span></div>
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <div style={{ fontWeight:700, fontSize:13, marginBottom:12 }}>Purchase History</div>
-                <div className="table-container">
-                  <table className="table">
-                    <thead><tr><th>Invoice</th><th>Date</th><th>Amount</th><th>Status</th></tr></thead>
-                    <tbody>
-                      {customerOrders(detail.id).length === 0 && (
-                        <tr><td colSpan={4} style={{ textAlign:'center', color:'var(--text-muted)', padding:20 }}>No orders yet</td></tr>
-                      )}
-                      {customerOrders(detail.id).map(o => (
-                        <tr key={o.id}>
-                          <td><span style={{ fontFamily:'var(--font-mono)', fontSize:12 }}>{o.invoiceNo}</span></td>
-                          <td>{o.date}</td>
-                          <td><span style={{ fontFamily:'var(--font-mono)', fontWeight:700 }}>{fmt(o.grandTotal)}</span></td>
-                          <td>
-                            <span className={`badge badge-${o.paymentStatus==='paid'?'success':o.paymentStatus==='partial'?'warning':'danger'}`}>
-                              {o.paymentStatus}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-outline" onClick={() => setDetail(null)}>Close</button>
-              {canDo('customer.edit') && (
-                <button className="btn btn-primary" onClick={() => { setModal(detail); setDetail(null); }}>
-                  <Edit2 size={14} /> Edit Customer
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
+      <PageHeader title="Customers">{can('Manage customers') && <button id="add-customer" className="btn btn-primary" onClick={() => setForm({ name: '', phone: '', email: '', address: '' })}><Plus size={15} /> New customer</button>}</PageHeader>
+      <div className="search-bar" style={{ marginBottom: 14, maxWidth: 360 }}><Search size={15} /><input id="customer-search" placeholder="Search name or phone" value={q} onChange={e => setQ(e.target.value)} /></div>
+      <div className="table-container"><table className="table">
+        <thead><tr><th>Name</th><th>Phone</th><th>E-mail</th><th>Address</th><th>Registered</th><th></th></tr></thead>
+        <tbody>{data.customers.map(c => (
+          <tr key={c.customer_id}><td style={{ fontWeight: 600 }}>{c.name}</td><td>{c.phone}</td><td>{c.email}</td><td>{c.address}</td><td>{c.registered_date}</td>
+            <td className="table-action-cell">
+              {can('Manage customers') && <button className="btn btn-ghost btn-sm" onClick={() => setForm(c)}><Pencil size={14} /> Edit</button>}
+              {can('View customer purchase history') && <button className="btn btn-ghost btn-sm" onClick={() => history(c)}><History size={14} /> History</button>}
+            </td></tr>
+        ))}</tbody>
+      </table></div>
+      {form && (
+        <Modal title={form.customer_id ? 'Edit customer' : 'New customer'} onClose={() => setForm(null)}
+          footer={<><button className="btn btn-outline" onClick={() => setForm(null)}>Cancel</button><button id="save-customer" className="btn btn-primary" disabled={busy} onClick={save}>Save</button></>}>
+          <Field label="Name *"><input id="customer-name" className="form-input" value={form.name} onChange={set('name')} /></Field>
+          <Field label="Phone *"><input id="customer-phone" className="form-input" value={form.phone} onChange={set('phone')} placeholder="0771234567" /></Field>
+          <Field label="E-mail"><input className="form-input" value={form.email || ''} onChange={set('email')} /></Field>
+          <Field label="Address"><input className="form-input" value={form.address || ''} onChange={set('address')} /></Field>
+        </Modal>
       )}
+      {hist && (
+        <Modal wide title={`Purchase history – ${hist.c.name}`} onClose={() => setHist(null)}>
+          {(() => { const done = hist.orders.filter(o => o.status === 'Completed'); const unpaid = hist.orders.reduce((t, o) => t + (o.invoice && o.invoice.status === 'Unpaid' ? Number(o.invoice.amount) - Number(o.invoice.paid_amount) : 0), 0); return (
+            <div className="stat-grid" style={{ marginBottom: 12 }}>
+              <div className="stat-card"><div className="stat-card-label">Orders</div><div className="stat-card-value">{done.length}</div></div>
+              <div className="stat-card"><div className="stat-card-label">Total spent</div><div className="stat-card-value">{money(done.reduce((t, o) => t + Number(o.total_amount), 0))}</div></div>
+              <div className="stat-card"><div className="stat-card-label">Still to pay</div><div className="stat-card-value">{money(unpaid)}</div></div>
+              <div className="stat-card"><div className="stat-card-label">Service jobs</div><div className="stat-card-value">{hist.jobs.length}</div></div>
+            </div>); })()}
+          {hist.orders.length === 0 ? <Empty text="No purchases yet" /> : (
+            <table className="table" id="customer-history"><thead><tr><th>Order</th><th>Date</th><th>Products</th><th>Total</th><th>Invoice</th><th></th></tr></thead>
+              <tbody>{hist.orders.map(o => <tr key={o.order_id}><td>SO-{o.order_id} {o.status === 'Cancelled' && <Badge text="Cancelled" />}</td><td>{o.order_date}</td>
+                <td style={{ fontSize: 12 }}>{o.items.map(i => `${nameOf(data.products, 'product_id', i.product_id, 'product_name')} × ${i.quantity}`).join(', ')}</td><td>{money(o.total_amount)}</td>
+                <td>{o.invoice ? <>INV-{o.invoice.invoice_id} <Badge text={o.invoice.status} /></> : '—'}</td>
+                <td>{o.invoice && <button className="btn btn-ghost btn-sm" onClick={() => setView(o.invoice.invoice_id)}>View</button>}</td></tr>)}</tbody></table>
+          )}
+          {hist.jobs.length > 0 && (<>
+            <div className="chart-title" style={{ fontSize: 14, marginTop: 12 }}>Service jobs</div>
+            <table className="table"><thead><tr><th>Job</th><th>Date</th><th>Product</th><th>Fault</th><th>Status</th><th>Charge</th></tr></thead>
+              <tbody>{hist.jobs.map(j => <tr key={j.job_id}><td>JOB-{j.job_id}</td><td>{j.request_date}</td><td>{nameOf(data.products, 'product_id', j.product_id, 'product_name')}</td><td style={{ fontSize: 12 }}>{j.fault}</td><td><Badge text={j.status} /></td><td>{money(j.service_charge)}</td></tr>)}</tbody></table>
+          </>)}
+        </Modal>
+      )}
+      {view && <InvoiceView invoiceId={view} onClose={() => setView(null)} />}
     </div>
   );
 }

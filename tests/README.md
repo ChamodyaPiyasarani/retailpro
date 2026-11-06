@@ -10,13 +10,7 @@ npm test
 
 | File | What it checks |
 |---|---|
-| `schemaMap.test.js` | App records ↔ database rows: id codes (P001 ↔ 1), roles, File Design column names, technician skills in `technician_specialisation`, technician numbers never reused, and a **round trip of every table** (company data → app → database rows gives exactly the same rows) |
-| `store.test.js` | Store helpers: loading/clearing, lookups, new record numbers, low stock, overdue POs, outstanding invoices, warranty check, promotion codes, phone/e-mail validation, available technicians, transactions, newest-first and low-stock-first ordering |
-| `reports.test.js` | The six management reports, date range check, totals add up, CSV export |
-| `sync.test.js` | Loading from and saving to Supabase (with a fake in-memory Supabase): only changed rows are saved, new rows inserted parents first, removed rows deleted children first, staff are deactivated (not deleted), technician rows are never deleted, skill rows use the two-column key, errors show "Not saved", sign-out |
-| `dashboard.test.js` | What each role sees on the dashboard: only the Admin / Manager gets the overall dashboard, revenue and payments only for the manager and finance, the technician sees only his own jobs |
-| `staffAccounts.test.js` | Creating staff accounts (password length, duplicate e-mail, errors, role saved) and the demo accounts on the login page |
+| `logic.test.js` | The calculations and checks inside the classes: sales order total, adding the same product again, stock check (not enough stock / inactive product / bad quantity), remove item, discount rate, purchase order total, payment amount check, `CustomerPayment` and `SupplierPayment` inherit from `Payment`, low stock, warranty valid / expired, overdue invoice, payment reminder needs an e-mail, job status steps, date and money helpers |
+| `roles-and-classes.test.js` | The system matches the diagrams: 35 permissions (one per use case), every menu permission exists in the database and every permission opens a page, the first page after log in follows the role's permissions, and every class has the methods drawn in the class diagram |
 
-`fixtures/company_data.json` is a copy of every table after running the SQL files
-in `supabase/` (schema → 02 → 03 → 04), so the tests use the same data as the real database.
-The tests never connect to the real Supabase project.
+The tests do not need the database: the one method that reads a product (stock check) uses a small fake product list.

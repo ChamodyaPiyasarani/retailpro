@@ -1,0 +1,67 @@
+# Purchasing: supplier, product_supplier, quotation, purchase_order, purchase_order_item
+# Use cases: Manage suppliers, Request supplier quotation, Create purchase order, Approve purchase orders,
+# Track purchase order status, Reorder low-stock items
+@url = {{$dotenv SUPABASE_URL}}
+@key = {{$dotenv SUPABASE_ANON_KEY}}
+@token = {{login.response.body.$.access_token}}
+
+### 0) Sign in first (click "Send Request" here) – the other requests use this token
+# @name login
+POST {{url}}/auth/v1/token?grant_type=password
+apikey: {{key}}
+Content-Type: application/json
+
+{ "email": "{{$dotenv TEST_EMAIL}}", "password": "{{$dotenv TEST_PASSWORD}}" }
+
+### 1) All suppliers with the products they supply
+GET {{url}}/rest/v1/supplier?select=*,product_supplier(product(product_name))&order=supplier_id
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 2) Quotations with supplier and product
+GET {{url}}/rest/v1/quotation?select=*,supplier(supplier_name),product(product_name)&order=quotation_id
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 3) Purchase orders with supplier (track status)
+GET {{url}}/rest/v1/purchase_order?select=po_id,order_date,expected_date,total_amount,status,supplier(supplier_name)&order=po_id
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 4) One purchase order with its items
+GET {{url}}/rest/v1/purchase_order?select=*,purchase_order_item(quantity,received_qty,unit_cost,product(product_name))&po_id=eq.1
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 5) Purchase orders waiting for approval
+GET {{url}}/rest/v1/purchase_order?status=eq.Pending
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 6) CREATE a test supplier
+POST {{url}}/rest/v1/supplier
+apikey: {{key}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Prefer: return=representation
+
+{ "supplier_name": "API Test Supplier", "contact_person": "Test", "phone": "0110000000", "email": "apisupplier@gmail.com", "address": "Colombo", "is_active": true }
+
+### 7) READ the test supplier
+GET {{url}}/rest/v1/supplier?supplier_name=eq.API Test Supplier
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 8) UPDATE the test supplier phone
+PATCH {{url}}/rest/v1/supplier?supplier_name=eq.API Test Supplier
+apikey: {{key}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Prefer: return=representation
+
+{ "phone": "0119999999" }
+
+### 9) DELETE the test supplier
+DELETE {{url}}/rest/v1/supplier?supplier_name=eq.API Test Supplier
+apikey: {{key}}
+Authorization: Bearer {{token}}

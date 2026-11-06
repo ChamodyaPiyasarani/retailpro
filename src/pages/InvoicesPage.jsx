@@ -1,144 +1,78 @@
+// Invoice Form – SD "View outstanding invoices" (extend: Send payment reminder) and the invoice history
 import { useState } from 'react';
-import { Search, Eye, Receipt, FileText } from 'lucide-react';
-import { SALES_ORDERS, CUSTOMERS, PRODUCTS, fmt, getCustomer, newestFirst } from '../data/store';
+import { Mail, Eye, Search } from 'lucide-react';
+import Invoice from '../classes/Invoice';
+import { money } from '../classes/db';
+import { useAuth } from '../context/AuthContext';
+import InvoiceView from '../components/InvoiceView';
+import { PageHeader, Field, Badge, useLoad, useAction, Loading, Empty } from '../components/ui';
 
-function InvoiceDetail({ order, onClose }) {
-  const customer = getCustomer(order.customerId);
-  return (
-    <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&onClose()}>
-      <div className="modal modal-lg">
-        <div className="modal-header">
-          <Receipt size={20} color="var(--primary-400)" />
-          <div className="modal-title">Invoice {order.invoiceNo}</div>
-          <button className="btn btn-ghost btn-sm" style={{ marginLeft:'auto' }} onClick={onClose}>✕</button>
-        </div>
-        <div className="modal-body">
-          {/* Invoice Header */}
-          <div style={{ display:'flex', justifyContent:'space-between', marginBottom:20 }}>
-            <div>
-              <div style={{ fontSize:22, fontWeight:800, color:'var(--primary-300)', marginBottom:4 }}>🏪 RetailPro</div>
-              <div style={{ fontSize:12, color:'var(--text-muted)' }}>Business Management Suite</div>
-            </div>
-            <div style={{ textAlign:'right' }}>
-              <div style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:16 }}>{order.invoiceNo}</div>
-              <div style={{ fontSize:12, color:'var(--text-muted)' }}>{order.date}</div>
-              <span className={`badge badge-${order.paymentStatus==='paid'?'success':order.paymentStatus==='partial'?'warning':'danger'}`}>
-                {order.paymentStatus}
-              </span>
-            </div>
-          </div>
+function OutstandingTab({ onView }) {
+  const { data, error } = useLoad(() => Invoice.getAll({ status: 'Unpaid' }));
+  const { act } = useAction();
+  if (!data) return <Loading error={error} />;
+  const rows = [...data].sort((a, b) => a.due_date.localeCompare(b.due_date));
+  const total = rows.reduce((s, i) => s + i.balance, 0);
+  const overdue = rows.filter(i => i.overdue);
+  return (<>
+    <div className="stat-grid" style={{ marginBottom: 14 }}>
+      <div className="stat-card"><div className="stat-card-label">Unpaid invoices</div><div className="stat-card-value">{rows.length}</div></div>
+      <div className="stat-card"><div className="stat-card-label">Still to receive</div><div className="stat-card-value">{money(total)}</div></div>
+      <div className="stat-card"><div className="stat-card-label">Overdue invoices</div><div className="stat-card-value text-danger">{overdue.length}</div></div>
+      <div className="stat-card"><div className="stat-card-label">Overdue amount</div><div className="stat-card-value text-danger">{money(overdue.reduce((s, i) => s + i.balance, 0))}</div></div>
+    </div>
+    {rows.length === 0 ? <Empty text="All invoices are paid" /> : (
+      <div className="table-container"><table className="table">
+        <thead><tr><th>Invoice</th><th>For</th><th>Customer</th><th>Date</th><th>Due</th><th>Amount</th><th>Balance</th><th>Status</th><th></th></tr></thead>
+        <tbody>{rows.map(i => (
+          <tr key={i.invoice_id}><td>INV-{i.invoice_id}</td><td>{i.order_id ? `SO-${i.order_id}` : `JOB-${i.job_id}`}</td><td>{i.customer_name}</td><td>{i.invoice_date}</td><td>{i.due_date}</td>
+            <td>{money(i.amount)}</td><td>{money(i.balance)}</td><td>{i.overdue ? <Badge text="Overdue" /> : <Badge text="Unpaid" />}</td>
+            <td className="table-action-cell"><button className="btn btn-ghost btn-sm" onClick={() => onView(i.invoice_id)}><Eye size={14} /> View</button>
+              {i.overdue && <button className="btn btn-ghost btn-sm" onClick={() => act(() => Invoice.sendReminder(i, i.customer), 'Reminder sent')}><Mail size={14} /> Send reminder</button>}</td></tr>
+        ))}</tbody>
+      </table></div>
+    )}
+  </>);
+}
 
-          {/* Customer */}
-          {customer && (
-            <div style={{ background:'var(--bg-overlay)', borderRadius:8, padding:14, marginBottom:16 }}>
-              <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:4, textTransform:'uppercase', letterSpacing:.5 }}>Bill To</div>
-              <div style={{ fontWeight:700, fontSize:15 }}>{customer.name}</div>
-              <div style={{ fontSize:13, color:'var(--text-muted)' }}>{customer.phone} · {customer.email}</div>
-              <div style={{ fontSize:13, color:'var(--text-muted)' }}>{customer.address}</div>
-            </div>
-          )}
-
-          {/* Line Items */}
-          <div className="table-container">
-            <table className="table">
-              <thead><tr><th>Item</th><th>Qty</th><th>Unit Price</th><th>Discount</th><th>Total</th></tr></thead>
-              <tbody>
-                {order.items.map((item,i) => (
-                  <tr key={i}>
-                    <td style={{ fontWeight:600 }}>{item.name}</td>
-                    <td>{item.qty}</td>
-                    <td style={{ fontFamily:'var(--font-mono)' }}>{fmt(item.unitPrice)}</td>
-                    <td style={{ fontFamily:'var(--font-mono)', color:'var(--success-400)' }}>{item.discount>0?`-${fmt(item.discount)}`:'—'}</td>
-                    <td style={{ fontFamily:'var(--font-mono)', fontWeight:700 }}>{fmt(item.total)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Totals */}
-          <div style={{ display:'flex', flexDirection:'column', gap:6, alignItems:'flex-end', marginTop:16 }}>
-            <div style={{ display:'flex', gap:40, fontSize:13 }}><span className="text-muted">Subtotal</span><span style={{ fontFamily:'var(--font-mono)' }}>{fmt(order.subtotal)}</span></div>
-            {order.discountTotal > 0 && <div style={{ display:'flex', gap:40, fontSize:13 }}><span className="text-muted">Discount</span><span style={{ fontFamily:'var(--font-mono)', color:'var(--success-400)' }}>−{fmt(order.discountTotal)}</span></div>}
-            <div style={{ height:1, width:200, background:'var(--border-default)' }} />
-            <div style={{ display:'flex', gap:40, fontSize:18, fontWeight:800 }}><span>Grand Total</span><span style={{ fontFamily:'var(--font-mono)', color:'var(--primary-300)' }}>{fmt(order.grandTotal)}</span></div>
-            <div style={{ display:'flex', gap:40, fontSize:13 }}><span className="text-muted">Paid</span><span style={{ fontFamily:'var(--font-mono)', color:'var(--success-400)' }}>{fmt(order.amountPaid)}</span></div>
-            {order.balance > 0 && <div style={{ display:'flex', gap:40, fontSize:13 }}><span className="text-muted">Balance Due</span><span style={{ fontFamily:'var(--font-mono)', color:'var(--danger-400)' }}>{fmt(order.balance)}</span></div>}
-          </div>
-        </div>
-        <div className="modal-footer">
-          <button className="btn btn-outline" onClick={onClose}>Close</button>
-          <button className="btn btn-primary" onClick={() => window.print()}>🖨️ Print</button>
-        </div>
+function HistoryTab({ onView }) {
+  const [f, setF] = useState({ text: '', status: '', from: '', to: '' });
+  const { data, error } = useLoad(() => Invoice.getAll(f), [f.text, f.status, f.from, f.to]);
+  return (<>
+    <div className="card" style={{ marginBottom: 12 }}>
+      <div className="form-row-3" style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr' }}>
+        <Field label="Search"><div className="search-bar"><Search size={15} /><input id="inv-search" placeholder="Invoice number, customer name or phone" value={f.text} onChange={e => setF({ ...f, text: e.target.value })} /></div></Field>
+        <Field label="Status"><select id="inv-status" className="form-select" value={f.status} onChange={e => setF({ ...f, status: e.target.value })}><option value="">All</option><option>Paid</option><option>Unpaid</option><option>Overdue</option></select></Field>
+        <Field label="From"><input type="date" className="form-input" value={f.from} onChange={e => setF({ ...f, from: e.target.value })} /></Field>
+        <Field label="To"><input type="date" className="form-input" value={f.to} onChange={e => setF({ ...f, to: e.target.value })} /></Field>
       </div>
     </div>
-  );
+    {!data ? <Loading error={error} /> : data.length === 0 ? <Empty text="No invoices found" /> : (<>
+      <p className="text-muted">{data.length} invoice(s) · total {money(data.reduce((s, i) => s + Number(i.amount), 0))} · received {money(data.reduce((s, i) => s + Number(i.paid_amount), 0))}</p>
+      <div className="table-container"><table className="table" id="invoice-history">
+        <thead><tr><th>Invoice</th><th>Date</th><th>For</th><th>Customer</th><th>Amount</th><th>Paid</th><th>Balance</th><th>Status</th><th></th></tr></thead>
+        <tbody>{data.map(i => (
+          <tr key={i.invoice_id}><td>INV-{i.invoice_id}</td><td>{i.invoice_date}</td><td>{i.order_id ? `Sale SO-${i.order_id}` : `Service JOB-${i.job_id}`}</td><td>{i.customer_name}</td>
+            <td>{money(i.amount)}</td><td>{money(i.paid_amount)}</td><td>{money(i.balance)}</td><td>{i.overdue ? <Badge text="Overdue" /> : <Badge text={i.status} />}{i.order_status === 'Cancelled' && <> <Badge text="Cancelled" /></>}</td>
+            <td><button className="btn btn-ghost btn-sm" onClick={() => onView(i.invoice_id)}><Eye size={14} /> View</button></td></tr>
+        ))}</tbody>
+      </table></div>
+    </>)}
+  </>);
 }
 
 export default function InvoicesPage() {
-  const [q, setQ] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [detail, setDetail] = useState(null);
-
-  const filtered = SALES_ORDERS.filter(o => {
-    const c = getCustomer(o.customerId);
-    return (statusFilter === 'all' || o.paymentStatus === statusFilter) &&
-      (!q || o.invoiceNo.toLowerCase().includes(q.toLowerCase()) || c?.name.toLowerCase().includes(q.toLowerCase()));
-  });
-
+  const { can } = useAuth();
+  const tabs = [['outstanding', 'Outstanding invoices', can('View outstanding invoices'), OutstandingTab], ['history', 'Invoice history', true, HistoryTab]].filter(t => t[2]);
+  const [tab, setTab] = useState(tabs[0][0]);
+  const [view, setView] = useState(null);
+  const Tab = tabs.find(t => t[0] === tab)[3];
   return (
     <div>
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">Invoices</h1>
-          <p className="page-subtitle">{SALES_ORDERS.length} total invoices</p>
-        </div>
-      </div>
-
-      <div style={{ display:'flex', gap:12, marginBottom:20 }}>
-        <div className="search-bar" style={{ flex:1 }}>
-          <Search size={15} color="var(--text-muted)"/>
-          <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search invoice or customer…" />
-        </div>
-        <select className="form-select" value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} style={{ width:160 }}>
-          <option value="all">All Status</option>
-          <option value="paid">Paid</option>
-          <option value="partial">Partial</option>
-          <option value="unpaid">Unpaid</option>
-        </select>
-      </div>
-
-      <div className="table-container">
-        <table className="table">
-          <thead>
-            <tr><th>Invoice #</th><th>Customer</th><th>Date</th><th>Items</th><th>Grand Total</th><th>Paid</th><th>Balance</th><th>Status</th><th>View</th></tr>
-          </thead>
-          <tbody>
-            {newestFirst(filtered).map(o => {
-              const c = getCustomer(o.customerId);
-              return (
-                <tr key={o.id}>
-                  <td><span style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:13 }}>{o.invoiceNo}</span></td>
-                  <td style={{ fontWeight:600 }}>{c?.name || 'Walk-in'}</td>
-                  <td style={{ fontSize:12 }}>{o.date}</td>
-                  <td><span className="badge badge-gray">{o.items.length} item{o.items.length!==1?'s':''}</span></td>
-                  <td><span style={{ fontFamily:'var(--font-mono)', fontWeight:700 }}>{fmt(o.grandTotal)}</span></td>
-                  <td><span style={{ fontFamily:'var(--font-mono)', color:'var(--success-400)' }}>{fmt(o.amountPaid)}</span></td>
-                  <td><span style={{ fontFamily:'var(--font-mono)', color: o.balance>0?'var(--danger-400)':'var(--text-secondary)' }}>{fmt(o.balance)}</span></td>
-                  <td><span className={`badge badge-${o.paymentStatus==='paid'?'success':o.paymentStatus==='partial'?'warning':'danger'}`}>{o.paymentStatus}</span></td>
-                  <td>
-                    <button className="btn btn-ghost btn-sm btn-icon" onClick={() => setDetail(o)} title="View Invoice">
-                      <Eye size={14} />
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      {detail && <InvoiceDetail order={detail} onClose={() => setDetail(null)} />}
+      <PageHeader title="Invoices" subtitle="Sales invoices and service invoices" />
+      <div className="tabs" style={{ marginBottom: 14 }}>{tabs.map(t => <button key={t[0]} id={`tab-${t[0]}`} className={`tab-btn ${tab === t[0] ? 'active' : ''}`} onClick={() => setTab(t[0])}>{t[1]}</button>)}</div>
+      <Tab onView={setView} />
+      {view && <InvoiceView invoiceId={view} onClose={() => setView(null)} />}
     </div>
   );
 }

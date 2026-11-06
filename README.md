@@ -1,129 +1,94 @@
-# RetailPro — Integrated Retail & Service Management System
+# Rajida Holdings – Retail Management System
 
-RetailPro is an enterprise-grade internal web application designed for a modern retail business selling computer and IT hardware parts and providing on-site PC/network installation, maintenance, repair services, and warranty lifecycle management.
+A web system for Rajida Holdings, a shop that sells computer parts and repairs computers.
+It covers sales, stock, purchasing, service jobs, payments and reports, with a log-in for each staff role.
+
+The system is built **from the diagrams** in `Diagrams/new smaller version`:
+
+| Diagram | In the code |
+|---|---|
+| Proposed use case diagram (37 use cases) | the pages in `src/pages` and the menu in `src/config/menu.js` |
+| Class diagram (27 classes) | one file per class in `src/classes` – the methods have the same names as in the diagram |
+| Sequence diagrams | each page ("Form") calls the class methods in the same order as its sequence diagram |
+| ER diagram, Table Design, Schema Mapping (28 tables) | `supabase/01_new_schema.sql` |
 
 ---
 
-## 🚀 Quick Start Guide (How to Run Locally)
+## Run it on your computer
 
-### Prerequisites
-- **Node.js** (v18 or higher recommended)
-- **npm** (comes with Node.js)
+1. Install **Node.js** 20 or newer.
+2. Open a terminal in the `retailpro` folder and install the packages:
+   ```bash
+   npm install
+   ```
+3. Make the database once – follow `supabase/README.md` (run `01_new_schema.sql`, then `02_new_company_data.sql`).
+4. Copy `.env.example` to `.env` and paste your Supabase **Project URL** and **anon public key**
+   (Supabase → Project Settings → API). Never upload `.env` – it is ignored by Git.
+5. Start the app:
+   ```bash
+   npm run dev
+   ```
+6. Open the address shown in the terminal (for example `http://localhost:5173/retailpro/`).
 
-### Step 1: Open Terminal in Project Directory
-Ensure your terminal or PowerShell prompt is in the `WebApp` root folder:
+## Staff accounts (one per role)
 
-### Step 2: Install Dependencies (if not already installed)
+The login page has one button for each account. Password for all: `123456`.
+
+| Role | Name | E-mail | What the role can do |
+|---|---|---|---|
+| Admin / Manager | Amara Silva | `admin@gmail.com` | user accounts, roles & permissions, products, categories, discounts, approvals, assign technicians, dashboard, business reports |
+| Sales Staff / Cashier | Kamal Perera | `cashier@gmail.com` | sales orders and sales history, customer payments, invoice history, customers, warranty check, service requests, return requests |
+| Storekeeper | Nimal Fernando | `storekeeper@gmail.com` | stock levels, receive stock, adjust stock, issue spare parts, stock reports |
+| Purchasing Manager | Dilshan Ranjith | `purchase@gmail.com` | suppliers, quotations, purchase orders, tracking, reorder low stock |
+| Finance Manager | Sanduni Perera | `finance@gmail.com` | outstanding invoices and invoice history, supplier payments, refunds, all payments, financial reports |
+| Technician | Ruwan Jayasena | `tech@gmail.com` | assigned jobs, update job status (repair notes, spare parts), service history |
+
+### Reports and history
+
+- **Reports** (11): Business – Sales, Product sales, Customer, Service · Stock – Stock level, Stock movement, Low stock ·
+  Financial – Income & payments, Outstanding invoices, Supplier purchases, Returns & refunds.
+  Each report has totals, a chart, a table, Print and Export PDF. Every report made is saved in the `report` table and
+  listed in **Report history**, where it can be opened again.
+- **History screens:** Sales history (Sales Orders page), Invoice history and invoice details with payments, warranty and returns
+  (Invoices page), earlier payments of an invoice and supplier payment history (Payments page), customer purchase history,
+  supplier order history, stock history of each product, issued spare parts, service job details.
+
+What each role can do is **not fixed in the code**: it comes from the `role_permission` table.
+The Admin can change it, or make a new role, in **Roles & Permissions**. The menu shows only the pages the role may use.
+
+## Folders
+
+| Folder | What is inside |
+|---|---|
+| `src/classes` | the 27 classes of the class diagram (`db.js` has the small helpers that talk to Supabase) |
+| `src/pages` | the screens (the "Forms" of the sequence diagrams) |
+| `src/context` | the logged-in user and permissions (`AuthContext`), messages (`ToastContext`), dark / light theme |
+| `src/components` | the page layout with the menu, and small parts used by every page (`ui.jsx`) |
+| `src/config` | the menu and the demo account buttons |
+| `supabase` | the SQL files for the database (see `supabase/README.md`) |
+| `api-tests` | REST Client files that test the database through the Supabase REST API (see `api-tests/README.md`) |
+| `tests` | unit tests (`npm test`, see `tests/README.md`) |
+
+## Checks
+
 ```bash
-npm install
+npm test        # unit tests
+npm run lint    # code check
+npm run build   # production build into dist/
 ```
 
-### Step 3: Start Vite Development Server
-```bash
-npm run dev
-```
+## Tech stack
 
-### Step 4: Open in Your Browser
-Once the dev server starts, open your browser and navigate to:
-```
-http://localhost:5173
-```
-*(If port 5173 is in use, Vite will indicate the alternate port in your terminal output).*
-
----
-
-## 🔑 Demo User Accounts
-
-You can sign in with any of the pre-configured role-based staff accounts directly from the login screen (using the one-click **Quick Demo Login** buttons or typing credentials):
-
-| Role | Name | Email | Password | Primary Accessible Modules |
-| :--- | :--- | :--- | :--- | :--- |
-| **Admin / Manager** | Kamal Perera | `admin@retailpro.lk` | `Admin@123` | Full access across all 12 modules, Settings, User Management |
-| **Sales Staff** | Dilani Silva | `sales@retailpro.lk` | `Sales@123` | POS, Sales Orders, Invoices, Customers, Returns |
-| **Storekeeper** | Ruwan Fernando | `store@retailpro.lk` | `Store@123` | Stock, Inventory Adjustments, Movements, Service Parts |
-| **Purchasing Officer** | Anusha Perera | `purchase@retailpro.lk` | `Purch@123` | Suppliers, Purchase Orders, Goods Receipt |
-| **Finance / Accounts** | Chaminda Jay | `finance@retailpro.lk` | `Fin@123` | Customer Payments, Outstanding Receivables, Supplier Payables |
-| **Technician** | Nuwan Bandara | `tech@retailpro.lk` | `Tech@123` | Service Jobs, Visit Logs, Parts Issuance, Service History |
-
----
-
-## 📦 System Modules & Key Features
-
-1. **Point of Sale (POS)**
-   - Category filtering, real-time SKU search, barcode simulation
-   - Customer selection (walk-in or registered accounts)
-   - Dynamic cart calculations (15% VAT, discounts, cash/card/transfer tender)
-   - Stock deduction and instant printable receipt modal
-
-2. **Sales Orders & Invoices**
-   - Full order registry with payment & fulfillment status filters
-   - Detailed invoice inspection with itemized breakdowns and print views
-
-3. **Customer Management**
-   - Customer registry, balances, purchase histories, and credit tracking
-
-4. **Inventory & Stock Management**
-   - Live stock counts, low-stock threshold badges, out-of-stock highlights
-   - Manual stock adjustments (in, out, reconciliation) with audit movement log
-
-5. **Purchasing & Goods Receipt**
-   - Purchase order lifecycle (`draft` → `sent` → `received`)
-   - Discrepancy checks during goods receiving and automatic stock increments
-
-6. **Service & Repair Management**
-   - Ticket logging with priority levels (`low`, `medium`, `high`, `urgent`)
-   - Technician assignment, job status updates (`assigned`, `in_progress`, `completed`)
-   - Spare parts issuance directly from stock with cost tracking
-   - Technician visit logs and customer sign-off
-
-7. **Warranty, Returns & Complaints**
-   - Strict warranty validation for refund and exchange workflows
-   - Manager approval stage before refund payments
-   - Customer complaint logging with escalation tracking
-
-8. **Finance & Payables**
-   - Customer payment entry against specific sales orders
-   - Outstanding accounts receivable monitoring
-   - Supplier payables tracking and settlement
-
-9. **Consolidated Reports & Analytics**
-   - Interactive charts (monthly revenue trends, service category breakdown, inventory valuation)
-   - One-click CSV export for reports
-
-10. **Users, Roles & System Settings**
-    - Account locking/unlocking, RBAC permission matrices, audit trail logs
-    - Store profile, tax rates, prefixes, and warranty policies
-
----
-
-## 🛠 Tech Stack
-
-- **Framework**: React 19 + Vite 8
-- **Routing**: React Router 7 (`HashRouter` for zero-configuration refreshes)
-- **Icons**: Lucide React
-- **Charts**: Recharts
-- **Styling**: Tailored Dark Modern Glassmorphism CSS Design System
-- **Dates**: date-fns
-
-
----
+React 19 + Vite, React Router (`HashRouter`), Supabase (PostgreSQL + Supabase Auth), Recharts, jsPDF, Lucide icons, Vitest.
 
 ## Hosting: GitHub Pages + Supabase
 
-The app is a static React (Vite) site, so it is hosted on **GitHub Pages**, and its data and log-in live in **Supabase** (PostgreSQL + Supabase Auth).
+The app is a static site, so it is hosted on **GitHub Pages**; its data and log-in are in **Supabase**.
 
-### 1. Supabase (database and log-in)
-1. Create a project at https://supabase.com.
-2. Open **SQL Editor**, paste the contents of `supabase/schema.sql` and click **Run**. This creates the 33 tables from the File Design, the foreign keys, Row Level Security and the trigger that creates a `user` row for each new staff account.
-3. Create staff accounts in **Authentication > Users** (Supabase Auth stores the passwords and sends password-reset e-mails).
-4. Copy `.env.example` to `.env` and paste your **Project URL** and **anon public key** (Project Settings > API).
+1. The repository name must match `base: '/retailpro/'` in `vite.config.js`.
+2. In the repository: **Settings → Secrets and variables → Actions** – add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
+3. **Settings → Pages → Source: GitHub Actions**.
+4. Every push to `main` builds and publishes the site (`.github/workflows/deploy.yml`).
 
-### 2. GitHub Pages (hosting)
-1. Create a GitHub repository named `retailpro` (it must match `base: '/retailpro/'` in `vite.config.js`) and push this folder to it.
-2. In `package.json`, replace `YOUR-GITHUB-USERNAME` in `homepage` with your GitHub username.
-3. Run `npm run deploy`. This builds the site with your `.env` values and publishes `dist` to the `gh-pages` branch.
-4. In the repository: **Settings > Pages > Source: Deploy from a branch > gh-pages**.
-
-The site uses `HashRouter`, so page refreshes work on GitHub Pages without extra settings.
-
-Optional: `deploy/github-pages-workflow.yml` deploys automatically on every push. Move it to `.github/workflows/deploy.yml` and add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` as repository secrets.
+The anon key is safe in a public site because every table is protected by Row Level Security:
+only signed-in staff can read or change data.

@@ -1,36 +1,46 @@
 # Supabase database – set-up steps
 
-All company data (products, customers, sales, purchases, service jobs, payments …)
-is stored in Supabase. The app has **no hard-coded data**: after a staff member
-signs in, it reads every table, and every change made in the app is saved back
-to the database straight away (see `src/lib/db/sync.js`).
+All company data is stored in Supabase. The app has **no hard-coded data**: every
+screen reads the tables and every change is saved straight back to the database.
+The 28 tables are exactly the tables of the **Table Design** and **Schema Mapping**
+(`Diagrams/new smaller version/5 - Table Design` and `6 - Schema Mapping`).
 
-Run the SQL files **in this order** in Supabase → **SQL Editor** → **New query** → paste → **Run**:
+## Step by step
 
-| Step | File | What it does |
-|---|---|---|
-| 1 | `schema.sql` | Creates the 33 tables of the File Design, foreign keys and Row Level Security (already done earlier). |
-| 2 | `02_app_columns.sql` | Adds the extra columns the screens use, the `audit_log` table, and lets the app choose record numbers. Safe to run again. |
-| 3 | `03_match_file_design.sql` | Makes the database match the File Design: File Design key and column names, `granted_date` / `access_type` on Role_permission, data types (rating NUMERIC(2,1), payment_terms INTEGER, VARCHAR(500)), and the new `technician_specialisation` table (multivalued attribute). Your data is kept. Safe to run again. |
-| 4 | `04_company_data.sql` | Loads the Rajida Holdings company data: 12 products, 5 customers, 4 suppliers, 6 months of sales (63 invoices), 26 purchase orders, 38 service jobs, payments, returns, complaints, settings, roles and permissions. **It replaces the business records**, so run it only when you want to start again from this data. |
+1. Open your project at https://supabase.com → **Authentication → Users**.
+   Check that these 6 staff accounts exist (password `123456`). Add any that are missing with **Add user → Create new user**:
+   `admin@gmail.com`, `cashier@gmail.com`, `storekeeper@gmail.com`, `purchase@gmail.com`, `finance@gmail.com`, `tech@gmail.com`
+2. Open **SQL Editor → New query**, paste the whole of `01_new_schema.sql` and click **Run**.
+   - It **deletes the old tables** (and the old trigger `on_auth_user_created`) and creates the 28 new tables,
+     their primary keys, foreign keys, checks and Row Level Security.
+3. Open a **new query**, paste the whole of `02_new_company_data.sql` and click **Run**.
+   - It loads the Rajida Holdings data: 6 roles, 35 permissions (one for each use case), 6 users,
+     12 products, 6 customers, 4 suppliers, sales orders, invoices, payments, purchase orders, service jobs …
+   - Dates are written as `current_date - n`, so the data always looks recent.
+   - The last query lists any staff e-mail that is missing in Supabase Auth – it should show **no rows**.
+4. Log in to the app with `admin@gmail.com` / `123456`.
 
-Before step 4 the 6 staff accounts must exist in **Authentication → Users**
-(admin, cashier, storekeeper, purchase, finance, tech @gmail.com).
-The last query of step 4 lists any account that is missing (it should show no rows).
+You can run steps 2 and 3 again at any time to start again from the original data.
 
-## How app records map to tables
+## Notes
 
-| App number | Table and id |
+- **Passwords** are kept (encrypted) by **Supabase Auth**, not in the `user` table. The `password` column only
+  holds the note *(kept encrypted by Supabase Auth)*. The app links an Auth account to its `user` row by **e-mail**.
+- **Roles and permissions:** `permission` has one row per use case (all use cases except Log in / Log out).
+  `role_permission` says which role may use which function. The Admin changes this in **Roles & Permissions**,
+  and the menu of each user is built from these rows.
+- New staff accounts made in **User Accounts** are added to Supabase Auth automatically (sign-up), so the Admin
+  is not logged out. If e-mail confirmation is on (Authentication → Providers → Email → *Confirm email*), the new
+  staff member must click the link in the e-mail before the first log in.
+- The old SQL files from the earlier version are kept in `old/` only for reference. **Do not run them.**
+
+## Tables
+
+| Module | Tables |
 |---|---|
-| P001 | `product.product_id = 1` |
-| C001 | `customer.customer_id = 1` |
-| SUP001 | `supplier.supplier_id = 1` |
-| SO-062 / INV-2026-062 | `sales_order.sales_order_id = 62`, lines in `sales_order_item`, `invoice.invoice_id = 62` |
-| PO-025 | `purchase_order.po_id = 25`, lines in `purchase_order_item`, `payable.payable_id = 25` |
-| JOB-038 | `service_job.service_job_id = 38`, visits in `service_visit_log` |
-| RET-001 | `exchange_request.exchange_request_id = 1` (+ `refund`, `returned_item`) |
-| PAY-001 / SPAY-001 | `payment.payment_id = 1` / `50001` (+ `transaction`) |
-| CR-001 | `credit_account.account_id = 1001` (customer credit accounts use the customer number) |
-| Staff user | `"user".user_id` = the Supabase Auth id, role in `role`, technicians in `technician`, their skills in `technician_specialisation` |
-
-Values that only the screens need (icons, notes, flags) are kept in each row's `details` JSON column.
+| Administration | `user`, `role`, `permission`, `role_permission`, `technician`, `technician_specialisation`, `discount` |
+| Stock | `category`, `product`, `stock_movement`, `stock_alert`, `spare_part_request` |
+| Sales | `customer`, `sales_order`, `sales_order_item`, `invoice`, `warranty`, `return_request`, `refund` |
+| Purchasing | `supplier`, `product_supplier`, `quotation`, `purchase_order`, `purchase_order_item` |
+| Service | `service_job`, `repair_note` |
+| Finance / Reports | `payment`, `report` |

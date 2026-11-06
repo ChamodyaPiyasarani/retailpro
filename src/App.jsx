@@ -1,238 +1,58 @@
+import { lazy, Suspense } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { ToastProvider } from './context/ToastContext';
 import Layout from './components/Layout';
-
 import LoginPage from './pages/LoginPage';
-import DashboardPage from './pages/DashboardPage';
-import POSPage from './pages/POSPage';
-import SalesPage from './pages/SalesPage';
-import InvoicesPage from './pages/InvoicesPage';
-import CustomersPage from './pages/CustomersPage';
-import StockPage from './pages/StockPage';
-import SuppliersPage from './pages/SuppliersPage';
-import PurchaseOrdersPage from './pages/PurchaseOrdersPage';
-import ServiceJobsPage from './pages/ServiceJobsPage';
-import ServiceHistoryPage from './pages/ServiceHistoryPage';
-import ReturnsPage from './pages/ReturnsPage';
-import PaymentsPage from './pages/PaymentsPage';
-import UsersPage from './pages/UsersPage';
-import ReportsPage from './pages/ReportsPage';
-import SettingsPage from './pages/SettingsPage';
-import WarrantyPage from './pages/WarrantyPage';
+import { ALL_PAGES, homeOf } from './config/menu';
 
-function ProtectedRoute({ children, perm }) {
-  const { user, can, restoring } = useAuth();
+// one form (page) for each group of use cases
+const PAGES = {
+  '/dashboard': lazy(() => import('./pages/DashboardPage')), '/sales-order': lazy(() => import('./pages/SalesOrderPage')),
+  '/payments': lazy(() => import('./pages/PaymentsPage')), '/customers': lazy(() => import('./pages/CustomersPage')),
+  '/warranty': lazy(() => import('./pages/WarrantyPage')), '/returns': lazy(() => import('./pages/ReturnsPage')),
+  '/invoices': lazy(() => import('./pages/InvoicesPage')), '/refunds': lazy(() => import('./pages/RefundsPage')),
+  '/stock': lazy(() => import('./pages/StockPage')), '/products': lazy(() => import('./pages/ProductsPage')),
+  '/categories': lazy(() => import('./pages/CategoriesPage')), '/suppliers': lazy(() => import('./pages/SuppliersPage')),
+  '/quotations': lazy(() => import('./pages/QuotationsPage')), '/purchase-orders': lazy(() => import('./pages/PurchaseOrdersPage')),
+  '/service-jobs': lazy(() => import('./pages/ServiceJobsPage')), '/my-jobs': lazy(() => import('./pages/MyJobsPage')),
+  '/service-history': lazy(() => import('./pages/ServiceHistoryPage')), '/reports': lazy(() => import('./pages/ReportsPage')),
+  '/users': lazy(() => import('./pages/UsersPage')), '/roles': lazy(() => import('./pages/RolesPage')), '/discounts': lazy(() => import('./pages/DiscountsPage')),
+};
 
-  // wait until a saved session is restored, then decide
-  if (restoring) {
-    return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Loading…</div>;
-  }
+function Protected({ page }) {
+  const { user, canAny, restoring } = useAuth();
+  if (restoring) return <div style={{ padding: 40, textAlign: 'center' }}>Loading…</div>;
+  if (!user) return <Navigate to="/login" replace />;
+  if (!canAny(page.perms)) return <Navigate to={homeOf(user.permissions)} replace />;
+  const Page = PAGES[page.path];
+  return <Layout><Suspense fallback={<div style={{ padding: 30 }}>Loading…</div>}><Page /></Suspense></Layout>;
+}
 
-  if (!user) {
-    return <Navigate to="/login" replace />;
-  }
+function Home() {
+  const { user, restoring } = useAuth();
+  if (restoring) return <div style={{ padding: 40, textAlign: 'center' }}>Loading…</div>;
+  return <Navigate to={user ? homeOf(user.permissions) : '/login'} replace />;
+}
 
-  if (perm && !can(perm)) {
-    return (
-      <div style={{ padding: 40, textAlign: 'center' }}>
-        <div style={{ fontSize: 48, marginBottom: 16 }}>🚫</div>
-        <h2 style={{ fontSize: 20, marginBottom: 8, color: 'var(--text-primary)' }}>Access Restricted</h2>
-        <p style={{ color: 'var(--text-muted)', maxWidth: 400, margin: '0 auto' }}>
-          Your role (<strong>{user.role}</strong>) does not have permission to view this section.
-        </p>
-      </div>
-    );
-  }
-
-  return <Layout>{children}</Layout>;
+function NoAccess() {
+  const { logout } = useAuth();
+  return <div style={{ padding: 40, textAlign: 'center' }}><h2>No pages for your role</h2><p>Ask the Admin to give permissions to your role.</p>
+    <button className="btn btn-primary" onClick={logout}>Log out</button></div>;
 }
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <ToastProvider>
-          <HashRouter>
-          <Routes>
-            <Route path="/login" element={<LoginPage />} />
-
-            {/* Main Dashboard */}
-            <Route
-              path="/dashboard"
-              element={
-                <ProtectedRoute perm="dashboard">
-                  <DashboardPage />
-                </ProtectedRoute>
-              }
-            />
-
-            {/* Sales & POS */}
-            <Route
-              path="/pos"
-              element={
-                <ProtectedRoute perm="pos">
-                  <POSPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/sales"
-              element={
-                <ProtectedRoute perm="sales">
-                  <SalesPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/invoices"
-              element={
-                <ProtectedRoute perm="invoices">
-                  <InvoicesPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/customers"
-              element={
-                <ProtectedRoute perm="customers">
-                  <CustomersPage />
-                </ProtectedRoute>
-              }
-            />
-
-            {/* Inventory */}
-            <Route path="/products" element={<Navigate to="/stock" replace />} />
-            <Route
-              path="/stock"
-              element={
-                <ProtectedRoute perm="stock">
-                  <StockPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/stock-movements"
-              element={
-                <ProtectedRoute perm="stock-movements">
-                  <StockPage />
-                </ProtectedRoute>
-              }
-            />
-
-            <Route
-              path="/warranty"
-              element={
-                <ProtectedRoute perm="warranty">
-                  <WarrantyPage />
-                </ProtectedRoute>
-              }
-            />
-
-            {/* Purchasing */}
-            <Route
-              path="/suppliers"
-              element={
-                <ProtectedRoute perm="suppliers">
-                  <SuppliersPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/purchase-orders"
-              element={
-                <ProtectedRoute perm="purchase-orders">
-                  <PurchaseOrdersPage />
-                </ProtectedRoute>
-              }
-            />
-
-            {/* Service & Returns */}
-            <Route
-              path="/service-jobs"
-              element={
-                <ProtectedRoute perm="service-jobs">
-                  <ServiceJobsPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/service-history"
-              element={
-                <ProtectedRoute perm="service-history">
-                  <ServiceHistoryPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/returns"
-              element={
-                <ProtectedRoute perm="returns">
-                  <ReturnsPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/complaints"
-              element={
-                <ProtectedRoute perm="complaints">
-                  <ReturnsPage />
-                </ProtectedRoute>
-              }
-            />
-
-            {/* Finance */}
-            <Route
-              path="/payments"
-              element={
-                <ProtectedRoute perm="payments">
-                  <PaymentsPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/payables"
-              element={
-                <ProtectedRoute perm="payables">
-                  <PaymentsPage />
-                </ProtectedRoute>
-              }
-            />
-
-            {/* Admin */}
-            <Route
-              path="/users"
-              element={
-                <ProtectedRoute perm="users">
-                  <UsersPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/reports"
-              element={
-                <ProtectedRoute perm="reports">
-                  <ReportsPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/settings"
-              element={
-                <ProtectedRoute perm="settings">
-                  <SettingsPage />
-                </ProtectedRoute>
-              }
-            />
-
-            {/* Default fallback */}
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
-          </Routes>
-        </HashRouter>
-      </ToastProvider>
-    </AuthProvider>
-  </ThemeProvider>
-);
+    <ThemeProvider><AuthProvider><ToastProvider>
+      <HashRouter>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/no-access" element={<NoAccess />} />
+          {ALL_PAGES.map(p => <Route key={p.path} path={p.path} element={<Protected page={p} />} />)}
+          <Route path="*" element={<Home />} />
+        </Routes>
+      </HashRouter>
+    </ToastProvider></AuthProvider></ThemeProvider>
+  );
 }

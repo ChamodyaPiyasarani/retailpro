@@ -1,229 +1,84 @@
+// Login Form – SD "Log in" (extend: Reset password)
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, LogIn, KeyRound } from 'lucide-react';
+import { Eye, EyeOff, LogIn } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import User from '../classes/User';
+import { homeOf } from '../config/menu';
 import { DEMO_ACCOUNTS } from '../config/demoAccounts';
-
-function ResetPasswordModal({ onClose, onReset, emailOnly }) {
-  const [email, setEmail] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [msg, setMsg] = useState(null);
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!emailOnly && newPassword !== confirmPassword) {
-      setMsg({ type: 'error', text: 'Passwords do not match!' });
-      return;
-    }
-    setSubmitting(true);
-    const res = await onReset(email, newPassword);
-    setSubmitting(false);
-    if (res.success) {
-      setMsg({ type: 'success', text: res.message });
-      setTimeout(onClose, 1400);
-    } else {
-      setMsg({ type: 'error', text: res.message });
-    }
-  };
-
-  return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal">
-        <div className="modal-header">
-          <KeyRound size={20} color="var(--primary-400)" />
-          <div className="modal-title">Reset Internal Account Password</div>
-        </div>
-        <form onSubmit={handleSubmit}>
-          <div className="modal-body">
-            <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-              {emailOnly
-                ? 'Enter your staff email address. We will send you a link to set a new password.'
-                : 'Enter your registered staff email address to authenticate and set a new password.'}
-            </p>
-
-            <div className="form-group">
-              <label className="form-label">Registered Staff Email *</label>
-              <input
-                type="email"
-                className="form-input"
-                placeholder="e.g. cashier@gmail.com"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                required
-              />
-            </div>
-
-            {!emailOnly && (<>
-            <div className="form-group">
-              <label className="form-label">New Password *</label>
-              <input
-                type="password"
-                className="form-input"
-                placeholder="Enter new strong password"
-                value={newPassword}
-                onChange={e => setNewPassword(e.target.value)}
-                required
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Confirm New Password *</label>
-              <input
-                type="password"
-                className="form-input"
-                placeholder="Confirm new password"
-                value={confirmPassword}
-                onChange={e => setConfirmPassword(e.target.value)}
-                required
-              />
-            </div>
-
-            </>)}
-
-            {msg && (
-              <div className={`alert alert-${msg.type === 'success' ? 'success' : 'danger'}`} style={{ fontSize: 13 }}>
-                {msg.type === 'success' ? '✓ ' : '⚠️ '}{msg.text}
-              </div>
-            )}
-          </div>
-          <div className="modal-footer">
-            <button type="button" className="btn btn-outline" onClick={onClose}>Cancel</button>
-            <button type="submit" className="btn btn-primary" disabled={submitting || !email || (!emailOnly && !newPassword)}>
-              {submitting ? 'Sending…' : emailOnly ? 'Send Reset Link' : 'Update Password'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
+import { isSupabaseConfigured } from '../lib/supabaseClient';
+import { Modal, Field } from '../components/ui';
 
 export default function LoginPage() {
-  const { login, resetPassword, loading, error, authMode } = useAuth();
+  const { login, recovery, setRecovery } = useAuth();
   const toast = useToast();
   const navigate = useNavigate();
-
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [showPw, setShowPw] = useState(false);
-  const [showResetModal, setShowResetModal] = useState(false);
+  const [show, setShow] = useState(false);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [forgot, setForgot] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [newPw, setNewPw] = useState('');
 
-  // Demo accounts: click one to fill in its email and password
-  const fillUser = (u) => {
-    setEmail(u.email);
-    setPassword(u.password);
+  const submit = async (e) => {
+    e.preventDefault(); setError(''); setBusy(true);
+    try { const u = await login(email, password); navigate(homeOf(u.permissions)); }
+    catch (err) { setError(err.message); }
+    finally { setBusy(false); }
   };
-
-  const handleSubmit = async (e) => {
+  const sendReset = async (e) => {
     e.preventDefault();
-    const result = await login(email, password);
-    if (result.success) navigate('/dashboard');
+    try { toast.success(await User.resetPassword(resetEmail)); setForgot(false); } catch (err) { toast.error(err.message); }
   };
-
-  const handleResetPassword = async (em, pw) => {
-    const res = await resetPassword(em, pw);
-    if (res.success) toast.success('Password updated. You can now sign in.');
-    return res;
+  const saveNewPassword = async (e) => {
+    e.preventDefault();
+    try { await User.changePassword(newPw); toast.success('Password changed. Please log in.'); setRecovery(false); await User.logout(); } catch (err) { toast.error(err.message); }
   };
 
   return (
     <div className="login-simple">
-      <form className="login-simple-card" onSubmit={handleSubmit}>
+      <form className="login-simple-card" onSubmit={submit}>
         <div className="login-simple-logo">🖥️</div>
         <h1 className="login-simple-title">Rajida Holdings</h1>
-        <p className="login-simple-subtitle">Inventory, Sales &amp; Purchase System</p>
-        <div className={`login-mode ${authMode}`}>
-          {authMode === 'supabase' ? 'Signing in with Supabase' : 'Database not connected – add the Supabase keys to .env'}
-        </div>
-
-        <div className="form-group">
-          <label className="form-label" htmlFor="login-email">Email</label>
-          <input
-            id="login-email"
-            type="email"
-            className="form-input"
-            placeholder="you@gmail.com"
-            value={email}
-            onChange={e => setEmail(e.target.value)}
-            required
-            autoComplete="email"
-            autoFocus
-          />
-        </div>
-
-        <div className="form-group">
-          <label className="form-label" htmlFor="login-password">Password</label>
+        <p className="login-simple-subtitle">Retail Management System</p>
+        {!isSupabaseConfigured && <div className="alert alert-danger" style={{ fontSize: 13 }}>The database is not connected – add the Supabase keys to the .env file.</div>}
+        <Field label="E-mail"><input id="login-email" type="email" className="form-input" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@gmail.com" /></Field>
+        <Field label="Password">
           <div style={{ position: 'relative' }}>
-            <input
-              id="login-password"
-              type={showPw ? 'text' : 'password'}
-              className="form-input"
-              style={{ paddingRight: 40 }}
-              placeholder="Enter your password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              required
-              autoComplete="current-password"
-            />
-            <button
-              type="button"
-              className="login-simple-eye"
-              onClick={() => setShowPw(!showPw)}
-              title={showPw ? 'Hide password' : 'Show password'}
-            >
-              {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
-            </button>
+            <input id="login-password" type={show ? 'text' : 'password'} className="form-input" value={password} onChange={e => setPassword(e.target.value)} />
+            <button type="button" className="login-simple-eye" onClick={() => setShow(!show)} aria-label="Show password">{show ? <EyeOff size={16} /> : <Eye size={16} />}</button>
           </div>
-        </div>
-
-        {error && <div className="alert alert-danger" style={{ fontSize: 13 }}>{error}</div>}
-
-        <button
-          id="login-submit-btn"
-          type="submit"
-          className="btn btn-primary btn-lg"
-          style={{ width: '100%', justifyContent: 'center' }}
-          disabled={loading}
-        >
-          {loading ? 'Signing in…' : <><LogIn size={16} /> Sign In</>}
-        </button>
-
-        <button type="button" className="login-simple-link" onClick={() => setShowResetModal(true)}>
-          Forgot password?
-        </button>
-
+        </Field>
+        {error && <div id="login-error" className="alert alert-danger" style={{ fontSize: 13 }}>⚠️ {error}</div>}
+        <button id="login-submit" type="submit" className="btn btn-primary w-full" disabled={busy}><LogIn size={16} /> {busy ? 'Checking…' : 'Log in'}</button>
+        <button type="button" id="forgot-password" className="login-simple-link" onClick={() => { setResetEmail(email); setForgot(true); }}>Forgot password?</button>
         <div className="login-demo">
-          <div className="login-demo-title">Demo accounts — click to fill in</div>
+          <div className="login-demo-title">Staff accounts (password 123456)</div>
           <div className="login-demo-list">
-            {DEMO_ACCOUNTS.map(u => (
-              <button
-                key={u.email}
-                id={`demo-${u.email.split('@')[0]}`}
-                type="button"
-                className={`login-demo-user ${email === u.email ? 'active' : ''}`}
-                onClick={() => fillUser(u)}
-                title={`${u.email} / ${u.password}`}
-              >
-                <span className="login-demo-avatar">{u.avatar}</span>
-                <span className="login-demo-text">
-                  <span className="login-demo-role">{u.label}</span>
-                  <span className="login-demo-email">{u.email}</span>
-                </span>
+            {DEMO_ACCOUNTS.map(a => (
+              <button type="button" key={a.email} className="login-demo-user" onClick={() => { setEmail(a.email); setPassword(a.password); }}>
+                <span className="login-demo-avatar">{a.avatar}</span><span className="login-demo-text"><span className="login-demo-role">{a.label}</span><span className="login-demo-email">{a.email}</span></span>
               </button>
             ))}
           </div>
         </div>
       </form>
 
-      {showResetModal && (
-        <ResetPasswordModal
-          onClose={() => setShowResetModal(false)}
-          onReset={handleResetPassword}
-          emailOnly={authMode === 'supabase'}
-        />
+      {forgot && (
+        <Modal title="Reset password" onClose={() => setForgot(false)}
+          footer={<><button className="btn btn-outline" onClick={() => setForgot(false)}>Cancel</button><button id="send-reset" className="btn btn-primary" onClick={sendReset}>Send reset link</button></>}>
+          <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>Enter your e-mail. A link to set a new password will be sent to it.</p>
+          <Field label="E-mail"><input id="reset-email" type="email" className="form-input" value={resetEmail} onChange={e => setResetEmail(e.target.value)} /></Field>
+        </Modal>
+      )}
+      {recovery && (
+        <Modal title="Set a new password" onClose={() => setRecovery(false)}
+          footer={<button className="btn btn-primary" onClick={saveNewPassword}>Save password</button>}>
+          <Field label="New password (at least 6 characters)"><input type="password" className="form-input" value={newPw} onChange={e => setNewPw(e.target.value)} /></Field>
+        </Modal>
       )}
     </div>
   );

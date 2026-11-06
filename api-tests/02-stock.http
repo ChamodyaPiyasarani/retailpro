@@ -1,0 +1,85 @@
+# Stock: category, product, stock_movement, stock_alert, spare_part_request
+# Use cases: Manage categories, Manage products, View stock levels, Receive stock, Adjust stock, Issue spare parts
+@url = {{$dotenv SUPABASE_URL}}
+@key = {{$dotenv SUPABASE_ANON_KEY}}
+@token = {{login.response.body.$.access_token}}
+
+### 0) Sign in first (click "Send Request" here) – the other requests use this token
+# @name login
+POST {{url}}/auth/v1/token?grant_type=password
+apikey: {{key}}
+Content-Type: application/json
+
+{ "email": "{{$dotenv TEST_EMAIL}}", "password": "{{$dotenv TEST_PASSWORD}}" }
+
+### 1) All categories
+GET {{url}}/rest/v1/category?order=category_id
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 2) All products with their category
+GET {{url}}/rest/v1/product?select=product_id,product_name,brand,model,unit_price,cost_price,stock_qty,reorder_level,warranty_months,is_active,category(category_name)&order=product_id
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 3) One product
+GET {{url}}/rest/v1/product?product_id=eq.1
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 4) Open low-stock alerts with the product
+GET {{url}}/rest/v1/stock_alert?select=alert_id,alert_date,status,product(product_name,stock_qty,reorder_level)&status=eq.Open
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 5) Stock movements (In / Out / Adjustment)
+GET {{url}}/rest/v1/stock_movement?select=*,product(product_name)&order=movement_id
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 6) Spare part requests waiting to be issued
+GET {{url}}/rest/v1/spare_part_request?select=*,product(product_name)&status=eq.Requested
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 7) CREATE a test category
+POST {{url}}/rest/v1/category
+apikey: {{key}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Prefer: return=representation
+
+{ "category_name": "API Test Category", "description": "REST Client test", "is_active": true }
+
+### 8) CREATE a test product (change category_id to the id from step 7)
+POST {{url}}/rest/v1/product
+apikey: {{key}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Prefer: return=representation
+
+{ "product_name": "API Test Product", "brand": "Test", "model": "T-1", "unit_price": 1500, "cost_price": 1000, "stock_qty": 10, "reorder_level": 3, "warranty_months": 6, "is_active": true, "category_id": 7 }
+
+### 9) READ the test product
+GET {{url}}/rest/v1/product?product_name=eq.API Test Product
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 10) UPDATE the test product price
+PATCH {{url}}/rest/v1/product?product_name=eq.API Test Product
+apikey: {{key}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Prefer: return=representation
+
+{ "unit_price": 1750 }
+
+### 11) DELETE the test product
+DELETE {{url}}/rest/v1/product?product_name=eq.API Test Product
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 12) DELETE the test category
+DELETE {{url}}/rest/v1/category?category_name=eq.API Test Category
+apikey: {{key}}
+Authorization: Bearer {{token}}

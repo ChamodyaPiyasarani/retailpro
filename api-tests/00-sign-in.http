@@ -1,5 +1,5 @@
 # Rajida Holdings – Supabase REST API tests
-# Sign in, see who you are, sign out.
+# Use cases: Log in, Log out
 @url = {{$dotenv SUPABASE_URL}}
 @key = {{$dotenv SUPABASE_ANON_KEY}}
 @token = {{login.response.body.$.access_token}}
@@ -12,21 +12,33 @@ Content-Type: application/json
 
 { "email": "{{$dotenv TEST_EMAIL}}", "password": "{{$dotenv TEST_PASSWORD}}" }
 
-### 1) Who am I (Supabase Auth user)
+### 1) Who am I (Supabase Auth checks the password, it is kept encrypted there)
 GET {{url}}/auth/v1/user
 apikey: {{key}}
 Authorization: Bearer {{token}}
 
-### 2) My staff profile and role
-GET {{url}}/rest/v1/user?select=user_id,full_name,email,user_type,is_active,is_locked,role(role_name)&email=eq.{{$dotenv TEST_EMAIL}}
+### 2) My staff record and role (table "user" + role)
+GET {{url}}/rest/v1/user?select=user_id,name,email,is_active,last_login,role(role_name)&email=eq.{{$dotenv TEST_EMAIL}}
 apikey: {{key}}
 Authorization: Bearer {{token}}
 
-### 3) Without a token the data is protected (Row Level Security) – returns an empty list []
-GET {{url}}/rest/v1/product?select=product_id,name
+### 3) The permissions of my role (role_permission + permission)
+GET {{url}}/rest/v1/role_permission?select=permission(permission_name,module)&role_id=eq.1
+apikey: {{key}}
+Authorization: Bearer {{token}}
+
+### 4) Without a token the data is protected (Row Level Security) – returns an empty list []
+GET {{url}}/rest/v1/product?select=product_id,product_name
 apikey: {{key}}
 
-### 4) Sign out
+### 5) Forgot password – Supabase sends a reset link to the e-mail (use case "Reset password")
+POST {{url}}/auth/v1/recover
+apikey: {{key}}
+Content-Type: application/json
+
+{ "email": "{{$dotenv TEST_EMAIL}}" }
+
+### 6) Log out
 POST {{url}}/auth/v1/logout
 apikey: {{key}}
 Authorization: Bearer {{token}}
